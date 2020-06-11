@@ -34,8 +34,8 @@
     "remote"
   ],
   "engines": {
-    "node": ">=6.0.0",
-    "homebridge": ">=0.4.21"
+    "node": ">=12.18.0",
+    "homebridge": ">=1.1.0"
   },
   "dependencies": {
     "rfxcom": ">=2.1.0"
