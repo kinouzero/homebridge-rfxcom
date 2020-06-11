@@ -1,7 +1,7 @@
 # homebridge-rfxcom
 -----
 Homebridge plugin for [RFXtrx433(E)](http://www.rfxcom.com/RFXtrx433E-USB-43392MHz-Transceiver/en) transceivers.
-
+Fork forked from jhurliman/homebridge-rfxcom
 
 ## Usage
 
