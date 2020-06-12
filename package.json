@@ -1,10 +1,12 @@
 {
   "name": "homebridge-rfxcom",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Homebridge plugin for RFXtrx433(E) transceivers.",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "rfyerase": "erase.js",
+    "rfyprogram": "program.js"
   },
   "repository": {
     "type": "git",
