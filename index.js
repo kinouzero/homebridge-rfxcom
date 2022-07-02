@@ -244,7 +244,7 @@ RFXComPlatform.prototype.addShutter = function(remote, device) {
     positionState: 2
   }
 
-  remote.shutters[type] = accessory
+  remote.shutters = accessory
 
   // Setup HomeKit service
   accessory.addService(Service.WindowCovering, name)
