@@ -272,8 +272,14 @@ RFXComPlatform.prototype.addShutter = function(remote, device) {
     .getService(Service.WindowCovering)
     .getCharacteristic(Characteristic.CurrentPosition)
     .on('get', this.getCurrentPosition.bind(this))
+
+  accessory
+    .getService(Service.WindowCovering)
     .getCharacteristic(Characteristic.TargetPosition)
     .on('get', this.getTargetPosition.bind(this))
+
+  accessory
+    .getService(Service.WindowCovering)
     .getCharacteristic(Characteristic.PositionState)
     .on('get', this.getPositionState.bind(this))
 
