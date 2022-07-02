@@ -42,9 +42,7 @@ function RFXComPlatform(log, config, api) {
 RFXComPlatform.prototype.configureAccessory = function(accessory) {
   let id = accessory.context.switchID || accessory.context.shutterID
 
-  this.log(
-    `Loaded from cache: ${accessory.context.name} (${id})`
-  )
+  this.log(`Loaded from cache: ${accessory.context.name} (${id})`)
 
   const existing = this.accessories[id]
   if (existing) this.removeAccessory(existing)
@@ -103,19 +101,19 @@ RFXComPlatform.prototype.listRFYRemotes = function() {
 // Method to add or update HomeKit accessory
 RFXComPlatform.prototype.addRFYRemote = function(remote, device) {
   remote.switches = {}
-  remote.shutters = {}
+  remote.shutter = null 
 
-  this.addRFYRemoteSwitch(remote, device, 'Up')
-  this.addRFYRemoteSwitch(remote, device, 'Down')
+  this.addSwitch(remote, device, 'Up')
+  this.addSwitch(remote, device, 'Down')
   this.addShutter(remote, device)
 }
 
 // Switches
-RFXComPlatform.prototype.addRFYRemoteSwitch = function(remote, device, type) {
+RFXComPlatform.prototype.addSwitch = function(remote, device, type) {
   const deviceID = remote.deviceID
   const switchID = `${deviceID}/${type}`
 
-  this.log(`Adding RFY switch ${switchID}`)
+  this.log(`Adding switch ${switchID}`)
 
   // Setup accessory
   let accessory = this.accessories[switchID]
@@ -166,10 +164,13 @@ RFXComPlatform.prototype.addRFYRemoteSwitch = function(remote, device, type) {
     .on('set', (value, callback) => {
       // Issue a stop if any switch is toggled off or the Stop switch is hit
       if (!value) {
+        this.rfy.stop(remote.deviceID)
 
         setTimeout(() => {
-          for (const t in remote.switches)
+          for (const t in remote.switches) {
             this.setSwitch(remote.switches[t], false)
+            this.setShutter(remote.shutter, Characteristic.PositionState.STOPPED)
+          }
         }, 100)
 
         return callback()
@@ -179,10 +180,12 @@ RFXComPlatform.prototype.addRFYRemoteSwitch = function(remote, device, type) {
         case 'Up':
           console.log(`RFY UP ${remote.deviceID}`)
           this.rfy.up(remote.deviceID)
+          this.setShutter(remote.shutter, Characteristic.PositionState.INCREASING)
           break
         case 'Down':
           console.log(`RFY DOWN ${remote.deviceID}`)
           this.rfy.down(remote.deviceID)
+          this.setShutter(remote.shutter, Characteristic.PositionState.DECREASING)
           break
       }
 
@@ -195,7 +198,10 @@ RFXComPlatform.prototype.addRFYRemoteSwitch = function(remote, device, type) {
         ? DEFAULT_OPEN_CLOSE_SECONDS * 1000
         : Math.round(remote.openCloseSeconds * 1000)
       clearTimeout(accessory.timerID)
-      accessory.timerID = setTimeout(() => this.setSwitch(accessory, false), ms)
+      accessory.timerID = setTimeout(() => {
+        this.setSwitch(accessory, false)
+        this.setShutter(remote.shutter, Characteristic.PositionState.STOPPED)
+      }, ms)
 
       callback()
     })
@@ -241,10 +247,12 @@ RFXComPlatform.prototype.addShutter = function(remote, device) {
     shutterID: shutterID,
     name: name,
     device: device,
-    positionState: 2
+    positionState: Characteristic.PositionState.STOPPED,
+    currentPosition: 1,
+    targetPosition: 1
   }
 
-  remote.shutters = accessory
+  remote.shutter = accessory
 
   // Setup HomeKit service
   accessory.addService(Service.WindowCovering, name)
@@ -271,17 +279,17 @@ RFXComPlatform.prototype.addShutter = function(remote, device) {
     })
     .getService(Service.WindowCovering)
     .getCharacteristic(Characteristic.CurrentPosition)
-    .on('get', this.getCurrentPosition.bind(this))
+    .on('get', callback => callback(null, accessory.context.currentPosition))
 
   accessory
     .getService(Service.WindowCovering)
     .getCharacteristic(Characteristic.TargetPosition)
-    .on('get', this.getTargetPosition.bind(this))
+    .on('get', callback => callback(null, accessory.context.targetPosition))
 
   accessory
     .getService(Service.WindowCovering)
     .getCharacteristic(Characteristic.PositionState)
-    .on('get', this.getPositionState.bind(this))
+    .on('get', callback => callback(null, accessory.context.positionState))
 
   // Register new accessory in HomeKit
   this.api.registerPlatformAccessories(PLUGIN_ID, PLUGIN_NAME, [accessory])
@@ -300,21 +308,6 @@ RFXComPlatform.prototype.setShutter = function(accessory, positionState) {
     .getService(Service.WindowCovering)
     .getCharacteristic(Characteristic.PositionState)
     .getValue()
-}
-
-RFXComPlatform.prototype.getCurrentPosition = function(cb) {
-  this.log(`getCurrentPosition ${this.currentPosition} for ${this.deviceId}`);
-  cb(null, this.currentPosition);
-}
-
-RFXComPlatform.prototype.getTargetPosition = function(cb) {
-  this.log(`getTargetPosition ${this.targetPosition} for ${this.deviceId}`);
-  cb(null, this.targetPosition);
-}
-
-RFXComPlatform.prototype.getPositionState = function(cb) {
-  this.log(`getPositionState ${this.positionState} for ${this.deviceId}`);
-  cb(null, this.positionState);
 }
 
 // Method to remove accessories from HomeKit
