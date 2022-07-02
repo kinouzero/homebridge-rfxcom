@@ -265,11 +265,16 @@ RFXComPlatform.prototype.addShutter = function(remote, device) {
 
   // Setup event listeners
   accessory
-    .getCharacteristic(this.hap.Characteristic.CurrentPosition)
+    .on('identify', (paired, callback) => {
+      this.log(`${name} identify requested, paired=${paired}`)
+      callback()
+    })
+    .getService(Service.WindowCovering)
+    .getCharacteristic(Characteristic.CurrentPosition)
     .on('get', this.getCurrentPosition.bind(this))
-    .getCharacteristic(this.hap.Characteristic.TargetPosition)
+    .getCharacteristic(Characteristic.TargetPosition)
     .on('get', this.getTargetPosition.bind(this))
-    .getCharacteristic(this.hap.Characteristic.PositionState)
+    .getCharacteristic(Characteristic.PositionState)
     .on('get', this.getPositionState.bind(this))
 
   // Register new accessory in HomeKit
@@ -287,7 +292,7 @@ RFXComPlatform.prototype.setShutter = function(accessory, positionState) {
   accessory.context.positionState = positionState
   accessory
     .getService(Service.WindowCovering)
-    .getCharacteristic(Characteristic.positionState)
+    .getCharacteristic(Characteristic.PositionState)
     .getValue()
 }
 
