@@ -248,8 +248,8 @@ RFXComPlatform.prototype.addShutter = function(remote, device) {
     name: name,
     device: device,
     positionState: Characteristic.PositionState.STOPPED,
-    currentPosition: 1,
-    targetPosition: 1
+    currentPosition: 0,
+    targetPosition: 0
   }
 
   remote.shutter = accessory
