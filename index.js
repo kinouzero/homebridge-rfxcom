@@ -105,7 +105,6 @@ RFXComPlatform.prototype.addRFYRemote = function(remote, device) {
 
   this.addRFYRemoteSwitch(remote, device, 'Up')
   this.addRFYRemoteSwitch(remote, device, 'Down')
-  this.addRFYRemoteSwitch(remote, device, 'Stop')
 }
 
 RFXComPlatform.prototype.addRFYRemoteSwitch = function(remote, device, type) {
