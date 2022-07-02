@@ -1,11 +1,12 @@
 # homebridge-rfxcom
 -----
-Homebridge plugin for [RFXtrx433(E)](http://www.rfxcom.com/RFXtrx433E-USB-43392MHz-Transceiver/en) transceivers.
+Homebridge plugin for [RFXtrx433(E,XL)](http://www.rfxcom.com/RFXtrx433E-USB-43392MHz-Transceiver/en) transceivers.
+Fork forked from glefand/homebridge-rfxcom
 Fork forked from jhurliman/homebridge-rfxcom
 
 ## Usage
 
-`npm install -g homebridge-rfxcom`
+`npm install -g homebridge-rfxcom3`
 
 ### config.json
 ```
@@ -30,4 +31,5 @@ Fork forked from jhurliman/homebridge-rfxcom
  - **deviceID** - The remote address and followed by unit code that can be found
    in the RFXMngr setup program (Windows only).
  - **openCloseSeconds** - Number of seconds it takes for the blinds/awning/etc
-   to fully open or close.
+   to fully open or close. If you want the good percentage of overture, fill it exactly
+   (by default **25**)
