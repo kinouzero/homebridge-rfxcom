@@ -13,22 +13,31 @@ Fork forked from glefand/homebridge-rfxcom\
     {
       "platform": "RFXCom",
       "name": "RFXCom",
+      "openCloseDefault": false
       "rfyRemotes": [
         {
-          "name": "Awning",
+          "name": "blinds",
           "deviceID": "0x010000/1",
-          "openCloseSeconds": 18
+          "openCloseSeconds": 25
         }
       ]
     }
   ]
 ```
 
+##### platform
+
+ - **name** - Name of the platform
+ - **tty** - path of RFXCOM (by default: **'/dev/ttyUSB0'**).
+ - **debug** - (by default **false**).
+ - **openCloseDefault** - For init purpose **true**=opened or **false**=closed on init
+  (by default: **true**)
+
 ##### rfyRemotes
 
  - **name** - Display name of the remote that will appear in HomeKit
  - **deviceID** - The remote address and followed by unit code that can be found
-   in the RFXMngr setup program (Windows only).
+   in the RFXMngr setup program (Windows only). (format: **0x0?????/?**)
  - **openCloseSeconds** - Number of seconds it takes for the blinds/awning/etc
    to fully open or close. If you want the good percentage of overture, fill it exactly
-   (by default **25**)
+   (by default: **25**)
