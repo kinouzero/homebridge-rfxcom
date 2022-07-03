@@ -26,6 +26,7 @@ module.exports = function(homebridge) {
   homebridge.registerPlatform(PLUGIN_ID, PLUGIN_NAME, RFXComPlatform, true);
 }
 
+// Constructor
 function RFXComPlatform(log, config, api) {
   this.log    = log;
   this.config = config || { platform: PLUGIN_NAME };
@@ -51,7 +52,43 @@ function RFXComPlatform(log, config, api) {
   }
 }
 
-// Method to restore accessories from cache
+// Setup accesories from config.json
+RFXComPlatform.prototype.didFinishLaunching = function() {
+  // Add or update accessory in HomeKit
+  if(this.rfyRemotes.length) {
+    // Compare local config against RFXCom-registered remotes
+    this.listRemotes()
+      .then(deviceRemotes => {
+        if(this.debug) this.log(`Received ${deviceRemotes.length} remote(s) from device`);
+
+        this.rfyRemotes.forEach(remote => {
+          // Handle different capitalizations of deviceID
+          remote.deviceID = remote.deviceID || remote.deviceId;
+          const deviceID  = remote.deviceID;
+          const device    = deviceRemotes.find(dR => deviceID === dR.deviceId);
+
+          if(device) {
+            // Remote found on the RFXCom device
+            this.addRemote(remote, device);
+            if(this.debug) this.log(`Added accessories for RFY remote ${remote.deviceID}`);
+          } else {
+            // No remote found on device
+            const msg = deviceRemotes.map(dR => `${dR.deviceId}`).join(', ');
+            if(this.debug) this.log(`ERROR: RFY remote ${deviceID} not found. Found: ${msg}`);
+          }
+        })
+      })
+      .catch(err => {
+        this.log(`UNHANDLED ERROR : ${err}`);
+        if(this.debug) console.log(err.stack);
+      })
+  } else {
+    this.log(`WARN: No RFY remotes configured`);
+    this.removeAccessories();
+  }
+}
+
+// Accessory
 RFXComPlatform.prototype.configureAccessory = function(accessory) {
   if(!accessory) return;
 
@@ -65,44 +102,21 @@ RFXComPlatform.prototype.configureAccessory = function(accessory) {
   this.accessories[id] = accessory;
 }
 
-// Method to setup accesories from config.json
-RFXComPlatform.prototype.didFinishLaunching = function() {
-  // Add or update accessory in HomeKit
-  if(this.rfyRemotes.length) {
-    // Compare local config against RFXCom-registered remotes
-    this.listRFYRemotes()
-      .then(deviceRemotes => {
-        if(this.debug) this.log(`Received ${deviceRemotes.length} remote(s) from device`);
+RFXComPlatform.prototype.removeAccessory = function(accessory) {
+  if(!accessory) return;
 
-        this.rfyRemotes.forEach(remote => {
-          // Handle different capitalizations of deviceID
-          remote.deviceID = remote.deviceID || remote.deviceId;
-          const deviceID  = remote.deviceID;
-          const device    = deviceRemotes.find(dR => deviceID === dR.deviceId);
-
-          if(device) {
-            // Remote found on the RFXCom device
-            this.addRFYRemote(remote, device);
-            if(this.debug) this.log(`Added accessories for RFY remote ${remote.deviceID}`);
-          } else {
-            // No remote found on device
-            const msg = deviceRemotes.map(dR => `${dR.deviceId}`).join(', ');
-            if(this.debug) this.log(`ERROR: RFY remote ${deviceID} not found. Found: ${msg}`);
-          }
-        })
-      })
-      .catch(err => {
-        this.log(`UNHANDLED ERROR : ${err}`);
-        console.log(err.stack);
-      })
-  } else {
-    // FIXME: Setup mode
-    this.log(`WARN: No RFY remotes configured`);
-    this.removeAccessories();
-  }
+  const id = accessory.context.switchID || accessory.context.shutterID;
+  this.log(`${accessory.context.name} (${id}) removed from HomeBridge.`);
+  this.api.unregisterPlatformAccessories(PLUGIN_ID, PLUGIN_NAME, [accessory]);
+  delete this.accessories[id];
 }
 
-RFXComPlatform.prototype.listRFYRemotes = function() {
+RFXComPlatform.prototype.removeAccessories = function() {
+  this.accessories.forEach(id => this.removeAccessory(this.accessories[id]));
+}
+
+// Remote
+RFXComPlatform.prototype.listRemotes = function() {
   return new Promise((resolve, reject) => {
     this.rfxtrx.once('rfyremoteslist', remotes => resolve(remotes));
 
@@ -113,8 +127,7 @@ RFXComPlatform.prototype.listRFYRemotes = function() {
   })
 }
 
-// Method to add or update HomeKit accessories
-RFXComPlatform.prototype.addRFYRemote = function(remote, device) {
+RFXComPlatform.prototype.addRemote = function(remote, device) {
   if(!remote || !device) return;
 
   remote.switches = {};
@@ -123,6 +136,104 @@ RFXComPlatform.prototype.addRFYRemote = function(remote, device) {
   this.addSwitch(remote, device, DIRECTION.up);
   this.addSwitch(remote, device, DIRECTION.down);
   this.addShutter(remote, device);
+}
+
+RFXComPlatform.prototype.initRemote = function(remote, type) {
+  this.log(`RFY ${type} ${remote.deviceID}`);
+
+  // Set shutter position state
+  this.setShutterPositionState(remote, type === DIRECTION.up ? Characteristic.PositionState.INCREASING : Characteristic.PositionState.DECREASING);
+
+  // Toggle all switches to the correct on/off state
+  for(const t in remote.switches) this.setSwitch(remote.switches[t], t === type);
+
+  // After a configurable amount of time, toggle the switch back to off
+  this.resetSwitch(remote);
+
+  // Start remote
+  this.startRemote(remote);
+}
+
+RFXComPlatform.prototype.startRemote = function(remote) {
+  if(!remote || !(_shutter = remote.shutter) || !(_switch = remote.switches[_shutter.context.direction]) ||
+    (_shutter.context.direction === DIRECTION.up && _shutter.context.currentPosition === 100) ||
+    (_shutter.context.direction === DIRECTION.down && _shutter.context.currentPosition === 0))
+      return;
+
+  // Up
+  if(_shutter.context.direction === DIRECTION.up) this.rfy.up(remote.deviceID);
+  // Down
+  if(_shutter.context.direction === DIRECTION.down) this.rfy.down(remote.deviceID);
+
+  // Start update remote
+  _shutter.context.interval = setInterval(() => this.updateRemote(remote), 1000);
+
+  if(this.debug) this.log(`Starting remote ${_shutter.context.shutterID}, currentPosition=${_shutter.context.currentPosition}`);
+}
+
+RFXComPlatform.prototype.updateRemote = function(remote, value = null) {
+  if(!remote || !(_shutter = remote.shutter)) return;
+
+  let percent = 0, stop = false, log = '';
+
+  // Increase duration
+  _shutter.context.duration++;
+
+  // Set forced value
+  if(value !== null) _shutter.context.processPosition = value;
+  else {
+    // Calcul percentage overture
+    if(_shutter.context.duration > 0) percent = Math.round((_shutter.context.duration * 100) / _shutter.context.totalDuration);
+    if(percent > 0 && _shutter.context.direction === DIRECTION.up) _shutter.context.processPosition = _shutter.context.currentPosition + percent;
+    if(percent > 0 && _shutter.context.direction === DIRECTION.down) _shutter.context.processPosition = _shutter.context.currentPosition - percent;
+    if(percent > 100 || percent < 0) this.stopRemote(remote, true);
+    log = `, movedBy=${percent}%`;
+  }
+
+  if(this.debug) this.log(`Updating remote ${_shutter.context.shutterID}, direction=${_shutter.context.direction}, currentPosition=${_shutter.context.currentPosition}, processPosition=${_shutter.context.processPosition}${log}`);
+
+  // Stop by target
+  if(_shutter.context.mode === MODE.target && (
+    (_shutter.context.direction === DIRECTION.up && _shutter.context.processPosition >= _shutter.context.targetPosition) ||
+    (_shutter.context.direction === DIRECTION.down && _shutter.context.processPosition <= _shutter.context.targetPosition)))
+      this.stopRemote(remote)
+
+  // Stop by position
+  if(value === null && (_shutter.context.processPosition > 100 || _shutter.context.processPosition < 0)) {
+    if(_shutter.context.processPosition > 100) _shutter.context.processPosition = 100;
+    else if(_shutter.context.processPosition < 0) _shutter.context.processPosition = 0;
+    this.stopRemote(remote, true)
+  }
+
+  // Stop by duration
+  if(_shutter.context.duration > _shutter.context.totalDuration) this.stopRemote(remote, true)
+}
+
+RFXComPlatform.prototype.stopRemote = function(remote, force = false) {
+  if(!remote || !(_shutter = remote.shutter) || _shutter.context.direction === DIRECTION.stop) return;
+
+  // Stop update remote
+  clearInterval(_shutter.context.interval);
+
+  // Set switch
+  let _switch;
+  if(_switch = remote.switches[_shutter.context.direction]) this.setSwitch(_switch, false);
+
+  // Set shutter
+  this.updateRemote(remote, force ? (_shutter.context.direction === DIRECTION.up ? 100 : 0) : null);
+  this.setShutterPositionState(remote);
+  this.setShutterTargetPosition(_shutter, _shutter.context.processPosition);
+  this.setShutterCurrentPosition(_shutter, _shutter.context.processPosition);
+
+  // Stop
+  if(_shutter.context.processPosition < 100 && _shutter.context.processPosition > 0) this.rfy.stop(remote.deviceID);
+
+  // Reset context
+  _shutter.context.direction = DIRECTION.stop;
+  _shutter.context.duration  = 0;
+  _shutter.context.mode      = MODE.switch;
+
+  if(this.debug) this.log(`Stopping remote ${_shutter.context.shutterID}, currentPosition=${_shutter.context.currentPosition}`);
 }
 
 // Switch
@@ -186,28 +297,8 @@ RFXComPlatform.prototype.addSwitch = function(remote, device, type) {
         return callback();
       }
 
-      // Set total duration
-      if(remote.openCloseSeconds) remote.shutter.context.totalDuration = Math.round(remote.openCloseSeconds * 1000);
-
-      // Set shutter position state
-      this.log(`RFY ${type} ${remote.deviceID}`);
-      switch(type) {
-        case DIRECTION.up:
-          this.setShutterPositionState(remote, Characteristic.PositionState.INCREASING);
-          break;
-        case DIRECTION.down:
-          this.setShutterPositionState(remote, Characteristic.PositionState.DECREASING);
-          break;
-      }
-
-      // Toggle all switches to the correct on/off state
-      for(const t in remote.switches) this.setSwitch(remote.switches[t], t === type);
-
-      // After a configurable amount of time, toggle the switch back to off
-      this.resetSwitch(remote);
-
-      // Start remote
-      this.startRemote(remote);
+      // Init remote
+      this.initRemote(remote, type)
 
       callback();
     });
@@ -239,7 +330,7 @@ RFXComPlatform.prototype.resetSwitch = function(remote) {
   clearTimeout(_switch.context.timeout)
   _switch.context.timeout = setTimeout(() => {
     this.stopRemote(remote, true);
-  }, _shutter.context.totalDuration);
+  }, _shutter.context.totalDuration * 1000);
 }
 
 // Shutter
@@ -272,7 +363,7 @@ RFXComPlatform.prototype.addShutter = function(remote, device) {
     targetPosition  : this.openCloseDefault ? 100 : 0,
     interval        : null,
     duration        : 0,
-    totalDuration   : OPEN_CLOSE_SECONDS * 1000,
+    totalDuration   : this.openCloseSeconds ? this.openCloseSeconds : OPEN_CLOSE_SECONDS,
     direction       : DIRECTION.stop,
     mode            : MODE.switch
   };
@@ -314,25 +405,19 @@ RFXComPlatform.prototype.addShutter = function(remote, device) {
     .on('get', callback => callback(null, _shutter.context.targetPosition))
     .on('set', (value, callback) => {
       /** @todo : WIP to make shutter placeholder interactive  **/
-
-      /* if(_shutter.context.targetPosition === value) return callback();
-      if(this.debug) this.log(`Updating shutter ${_shutter.context.shutterID}, currrentPosition=${_shutter.context.currentPosition}, targetPosition=${value}`);
-
+      if(_shutter.context.targetPosition === value) return callback();
+      
       // Set target position
       this.setShutterTargetPosition(_shutter, value);
       if(_shutter.context.targetPosition === _shutter.context.currentPosition) return callback();
-
-      // Hit the correct button
-      let direction = _shutter.context.targetPosition > _shutter.context.currentPosition ? DIRECTION.up : DIRECTION.down;
-      let _switch   = remote.switches[direction];
-      this.setSwitch(_switch, true);
-
-      // Move the shutter
+      
+      if(this.debug) this.log(`Updating shutter ${_shutter.context.shutterID}, currrentPosition=${_shutter.context.currentPosition}, targetPosition=${value}`);
+      // Set context
       _shutter.context.mode = MODE.target;
-      this.setShutterPositionState(remote, direction === DIRECTION.up ? Characteristic.PositionState.INCREASING : Characteristic.PositionState.DECREASING, _switch, true);
-
-      // After a configurable amount of time, toggle the switch back to off
-      this.resetSwitch(remote, _switch); */
+      
+      // Init remote
+      let type = _shutter.context.targetPosition > _shutter.context.currentPosition ? DIRECTION.up : DIRECTION.down;
+      this.initRemote(remote, type);
 
       callback();
     });
@@ -347,19 +432,6 @@ RFXComPlatform.prototype.addShutter = function(remote, device) {
   this.setShutterPositionState(remote);
 
   return _shutter;
-}
-
-RFXComPlatform.prototype.setShutterPositionState = function(remote, positionState = Characteristic.PositionState.STOPPED) {
-  if(!remote || !(_shutter = remote.shutter)) return;
-
-  if(this.debug) this.log(`Set shutter ${_shutter.context.shutterID}, positionState=${_shutter.context.positionState}`);
-
-  _shutter.context.direction     = positionState === Characteristic.PositionState.INCREASING ? DIRECTION.up : DIRECTION.down;
-  _shutter.context.positionState = positionState;
-  _shutter
-    .getService(Service.WindowCovering)
-    .getCharacteristic(Characteristic.PositionState)
-    .getValue();
 }
 
 RFXComPlatform.prototype.setShutterCurrentPosition = function(_shutter, value) {
@@ -386,99 +458,15 @@ RFXComPlatform.prototype.setShutterTargetPosition = function(_shutter, value) {
     .getValue();
 }
 
-// Remote
-RFXComPlatform.prototype.startRemote = function(remote) {
-  if(!remote || !(_shutter = remote.shutter) || !(_switch = remote.switches[_shutter.context.direction]) ||
-    (_shutter.context.direction === DIRECTION.up && _shutter.context.currentPosition === 100) ||
-    (_shutter.context.direction === DIRECTION.down && _shutter.context.currentPosition === 0))
-      return;
-
-  // Up
-  if(_shutter.context.direction === DIRECTION.up) this.rfy.up(remote.deviceID);
-  // Down
-  if(_shutter.context.direction === DIRECTION.down) this.rfy.down(remote.deviceID);
-
-  // Start update remote
-  _shutter.context.interval = setInterval(() => this.updateRemote(remote), 1000);
-
-  if(this.debug) this.log(`Starting remote ${_shutter.context.shutterID}, currentPosition=${_shutter.context.currentPosition}`);
-}
-
-RFXComPlatform.prototype.updateRemote = function(remote, value = null) {
+RFXComPlatform.prototype.setShutterPositionState = function(remote, positionState = Characteristic.PositionState.STOPPED) {
   if(!remote || !(_shutter = remote.shutter)) return;
 
-  let percent = 0, stop = false, log = '';
+  if(this.debug) this.log(`Set shutter ${_shutter.context.shutterID}, positionState=${_shutter.context.positionState}`);
 
-  // Increase duration
-  _shutter.context.duration++;
-
-  // Set forced value
-  if(value !== null) _shutter.context.processPosition = value;
-  else {
-    // Calcul percentage overture
-    if(_shutter.context.duration > 0) percent = Math.round(((_shutter.context.duration * 100) / _shutter.context.totalDuration) * 1000);
-    if(percent > 0 && _shutter.context.direction === DIRECTION.up) _shutter.context.processPosition = _shutter.context.currentPosition + percent;
-    if(percent > 0 && _shutter.context.direction === DIRECTION.down) _shutter.context.processPosition = _shutter.context.currentPosition - percent;
-    log = `, movedBy=${percent}%`;
-  }
-
-  if(this.debug) this.log(`Updating remote ${_shutter.context.shutterID}, direction=${_shutter.context.direction}, currentPosition=${_shutter.context.currentPosition}, processPosition=${_shutter.context.processPosition}${log}`);
-
-  // Stop by target
-  if(_shutter.context.mode === MODE.target && (
-    (_shutter.context.direction === DIRECTION.up && _shutter.context.processPosition >= _shutter.context.targetPosition) ||
-    (_shutter.context.direction === DIRECTION.down && _shutter.context.processPosition <= _shutter.context.targetPosition)))
-      this.stopRemote(remote)
-
-  // Stop by position
-  if(value === null && (_shutter.context.processPosition > 100 || _shutter.context.processPosition < 0)) {
-    if(_shutter.context.processPosition > 100) _shutter.context.processPosition = 100;
-    else if(_shutter.context.processPosition < 0) _shutter.context.processPosition = 0;
-    this.stopRemote(remote, true)
-  }
-
-  // Stop by duration
-  if(_shutter.context.duration > (_shutter.context.totalDuration / 1000)) this.stopRemote(remote, true)
-}
-
-RFXComPlatform.prototype.stopRemote = function(remote, force = false) {
-  if(!remote || !(_shutter = remote.shutter) || _shutter.context.direction === DIRECTION.stop) return;
-
-  // Stop update remote
-  clearInterval(_shutter.context.interval);
-
-  // Set switch
-  let _switch;
-  if(_switch = remote.switches[_shutter.context.direction]) this.setSwitch(_switch, false);
-
-  // Set shutter
-  this.updateRemote(remote, force ? (_shutter.context.direction === DIRECTION.up ? 100 : 0) : null);
-  this.setShutterPositionState(remote);
-  this.setShutterTargetPosition(_shutter, _shutter.context.processPosition);
-  this.setShutterCurrentPosition(_shutter, _shutter.context.processPosition);
-
-  // Stop
-  if(_shutter.context.processPosition < 100 && _shutter.context.processPosition > 0) this.rfy.stop(remote.deviceID);
-
-  // Reset context
-  _shutter.context.direction = DIRECTION.stop;
-  _shutter.context.duration  = 0;
-  _shutter.context.mode      = MODE.switch;
-
-  if(this.debug) this.log(`Stopping remote ${_shutter.context.shutterID}, currentPosition=${_shutter.context.currentPosition}`);
-}
-
-// Method to remove an accessory from HomeKit
-RFXComPlatform.prototype.removeAccessory = function(accessory) {
-  if(!accessory) return;
-
-  const id = accessory.context.switchID || accessory.context.shutterID;
-  this.log(`${accessory.context.name} (${id}) removed from HomeBridge.`);
-  this.api.unregisterPlatformAccessories(PLUGIN_ID, PLUGIN_NAME, [accessory]);
-  delete this.accessories[id];
-}
-
-// Method to remove all accessories from HomeKit
-RFXComPlatform.prototype.removeAccessories = function() {
-  this.accessories.forEach(id => this.removeAccessory(this.accessories[id]));
+  _shutter.context.direction     = positionState === Characteristic.PositionState.INCREASING ? DIRECTION.up : DIRECTION.down;
+  _shutter.context.positionState = positionState;
+  _shutter
+    .getService(Service.WindowCovering)
+    .getCharacteristic(Characteristic.PositionState)
+    .getValue();
 }
