@@ -1,6 +1,6 @@
 {
   "name": "homebridge-rfxcom3",
-  "version": "1.3.0",
+  "version": "1.3.12",
   "description": "Homebridge plugin for RFXtrx433(E) transceivers.",
   "main": "index.js",
   "scripts": {
