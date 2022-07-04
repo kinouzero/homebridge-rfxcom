@@ -4,7 +4,7 @@ Homebridge plugin for [RFXtrx433(E,XL)](http://www.rfxcom.com/RFXtrx433E-USB-433
 Fork forked from glefand/homebridge-rfxcom\
 Itself forked from jhurliman/homebridge-rfxcom\
 \
-The shutter is at 50% at startup, like that you can press any button to set initialization.\
+The shutter is at 50% at startup, like that you can press any button to set initialization.
 
 ## Usage
 
