@@ -19,8 +19,7 @@ The shutter is at 50% at startup, like that you can press any button to set init
       "rfyRemotes": [
         {
           "name": "blinds",
-          "deviceID": "0x010000/1",
-          "openCloseSeconds": 25
+          "deviceID": "0x000000/1"
         }
       ]
     }
@@ -29,15 +28,19 @@ The shutter is at 50% at startup, like that you can press any button to set init
 
 ##### platform
 
- - **name** - Name of the platform
- - **tty** - path of RFXCOM - optional (by default: **'/dev/ttyUSB0'**).
- - **debug** - optional (by default **false**).
+ - **name** - mandatory
+   Name of the platform
+ - **tty** - optional (by default: **'/dev/ttyUSB0'**)
+   Path of RFXCOM
+ - **debug** - optional (by default: **false**).
 
 ##### rfyRemotes
 
- - **name** - Display name of the remote that will appear in HomeKit - mandatory
- - **deviceID** - The remote address and followed by unit code that can be found
-   in the RFXMngr setup program (Windows only). - mandatory (format: **0x0?????/?**)
- - **openCloseSeconds** - Number of seconds it takes for the blinds/awning/etc
-   to fully open or close. If you want the good percentage of overture, fill it exactly
-   - optional (by default: **25**)
+ - **name** - mandatory
+   Display name of the remote that will appear in HomeKit
+ - **deviceID** - mandatory (format: **0x0?????/?**)
+   The remote address and followed by unit code that can be found in the
+   RFXMngr setup program (Windows only).
+ - **openCloseSeconds** - optional (by default: **25**)
+   Number of seconds it takes for the blinds/awning/etc to fully open or close.
+   If you want the good percentage displayed, fill it exactly.
