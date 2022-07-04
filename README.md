@@ -28,19 +28,18 @@ The shutter is at 50% at startup, like that you can press any button to set init
 
 ##### platform
 
- - **name** - mandatory
+ - **name** - mandatory\
    Name of the platform
- - **tty** - optional (by default: **'/dev/ttyUSB0'**)
+ - **tty** - optional - default: **'/dev/ttyUSB0'**\
    Path of RFXCOM
- - **debug** - optional (by default: **false**).
+ - **debug** - optional - default: **false**
 
 ##### rfyRemotes
 
- - **name** - mandatory
+ - **name** - mandatory\
    Display name of the remote that will appear in HomeKit
- - **deviceID** - mandatory (format: **0x0?????/?**)
-   The remote address and followed by unit code that can be found in the
-   RFXMngr setup program (Windows only).
- - **openCloseSeconds** - optional (by default: **25**)
-   Number of seconds it takes for the blinds/awning/etc to fully open or close.
+ - **deviceID** - mandatory - format: **0x0?????/?**\
+   The remote address and followed by unit code that can be found in the RFXMngr setup program (Windows only).
+ - **openCloseSeconds** - optional - default: **25**\
+   Number of seconds it takes for the blinds/awning/etc to fully open or close.\
    If you want the good percentage displayed, fill it exactly.
