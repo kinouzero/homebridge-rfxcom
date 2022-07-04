@@ -74,11 +74,11 @@ RFXComPlatform.prototype.didFinishLaunching = function() {
           if(device) {
             // Remote found on the RFXCom device
             this.addRemote(remote, device);
-            if(this.debug) this.log(`Remote ${remote.deviceID}: Added shutter and switches Up/Down.`);
+            this.log(`Remote ${remote.deviceID}: Added shutter and switches Up/Down.`);
           } else {
             // No remote found on device
             const msg = deviceRemotes.map(dR => `${dR.deviceId}`).join(', ');
-            if(this.debug) this.log(`ERROR: RFY remote ${deviceID} not found. Found: ${msg}`);
+            this.log(`ERROR: RFY remote ${deviceID} not found. Found: ${msg}`);
           }
         })
       })
@@ -87,7 +87,7 @@ RFXComPlatform.prototype.didFinishLaunching = function() {
         if(this.debug) console.log(error.stack);
       })
   } else {
-    this.log(`WARN: No RFY remotes configured`);
+    this.log(`WARNING: No RFY remotes configured`);
     this.removeAccessories();
   }
 }
@@ -175,7 +175,7 @@ RFXComPlatform.prototype.addRemote = function(remote, device) {
  RFXComPlatform.prototype.addShutter = function(remote, device) {
   if(!remote || !device) return;
 
-  this.log(`Remote ${remote.deviceID}: Adding shutter...`);
+  if(this.debug) this.log(`Remote ${remote.deviceID}: Adding shutter...`);
 
   // Setup accessory
   const shutterID = `${remote.deviceID}/Shutter`;
@@ -245,7 +245,7 @@ RFXComPlatform.prototype.addRemote = function(remote, device) {
   this.setShutterTargetPosition(_shutter, _shutter.context.targetPosition);
   this.setShutterPositionState(_shutter, Characteristic.PositionState.STOPPED);
 
-  this.log(`Remote ${remote.deviceID}: Added ${name}.`);
+  if(this.debug) this.log(`Remote ${remote.deviceID}: Added ${name}.`);
 
   return _shutter;
 }
@@ -260,7 +260,7 @@ RFXComPlatform.prototype.addRemote = function(remote, device) {
  RFXComPlatform.prototype.addSwitch = function(remote, device, direction) {
   if(!remote || !device || !direction) return;
 
-  this.log(`Remote ${remote.deviceID}: Adding switch...`);
+  if(this.debug) this.log(`Remote ${remote.deviceID}: Adding switch...`);
 
   // Setup accessory
   const switchID = `${remote.deviceID}/${direction}`;
@@ -323,7 +323,7 @@ RFXComPlatform.prototype.addRemote = function(remote, device) {
   // Set the initial switch position
   this.setSwitch(_switch, _switch.context.on);
 
-  this.log(`Remote ${remote.deviceID}: Added ${name}.`);
+  if(this.debug) this.log(`Remote ${remote.deviceID}: Added ${name}.`);
 
   return _switch;
 }
