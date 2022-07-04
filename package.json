@@ -1,6 +1,6 @@
 {
   "name": "homebridge-rfxcom3",
-  "version": "1.4.0-beta.0",
+  "version": "1.4.1",
   "description": "Homebridge plugin for RFXtrx433(E) transceivers.",
   "main": "index.js",
   "scripts": {
@@ -26,6 +26,7 @@
     "rfxtrx433e",
     "433",
     "somfy",
+    "simu",
     "rts",
     "rfy",
     "homebridge",
