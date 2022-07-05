@@ -1,0 +1,16 @@
+{
+  "pluginAlias": "RFXCom 3",
+  "pluginType": "platform",
+  "singular": true,
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "title": "Name",
+        "type": "string",
+        "required": true,
+        "default": "RFXCom 3"
+      }
+    }
+  }
+}

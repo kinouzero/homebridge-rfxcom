@@ -1,23 +1,27 @@
 {
-  "name": "homebridge-rfxcom-3",
-  "version": "1.4.4",
+  "displayName": "RFXCom 3",
+  "name": "homebridge-plugin-rfxcom-3",
+  "version": "1.5.0-alpha.20",
   "description": "Homebridge plugin for RFXtrx433(E) transceivers.",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "rfyerase": "erase.js",
-    "rfyprogram": "program.js"
-  },
+  "license": "MIT License",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/kinouzero/homebridge-rfxcom.git"
+    "url": "git://github.com/kinouzero/homebridge-rfxcom.git"
   },
-  "author": "Fork from John Hurliman <jhurliman@jhurliman.org>",
-  "license": "MIT",
   "bugs": {
-    "url": "https://github.com/kinouzero/homebridge-rfxcom/issues"
+    "url": "https://github.com/kinouzero/homebridge-rfxcom.git/issues"
   },
-  "homepage": "https://github.com/kinouzero/homebridge-rfxcom#readme",
+  "engines": {
+    "node": ">=14.18.1",
+    "homebridge": ">=1.3.5"
+  },
+  "main": "dist/index.js",
+  "scripts": {
+    "lint": "eslint src/**.ts --max-warnings=0",
+    "watch": "npm run build && npm link && nodemon",
+    "build": "rimraf ./dist && tsc",
+    "prepublishOnly": "npm run lint && npm run build"
+  },
   "keywords": [
     "homebridge-plugin",
     "rfxcom",
@@ -36,12 +40,18 @@
     "awning",
     "remote"
   ],
-  "engines": {
-    "node": ">=12.18.0",
-    "homebridge": ">=1.1.0"
-  },
   "dependencies": {
     "rfxcom": ">=2.1.0"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "@types/node": "^16.10.9",
+    "@typescript-eslint/eslint-plugin": "^5.0.0",
+    "@typescript-eslint/parser": "^5.0.0",
+    "eslint": "^8.0.1",
+    "homebridge": "^1.3.5",
+    "nodemon": "^1.3.3",
+    "rimraf": "^3.0.2",
+    "ts-node": "^10.3.0",
+    "typescript": "^4.4.4"
+  }
 }
