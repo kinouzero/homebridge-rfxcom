@@ -1,4 +1,4 @@
-import { API, DynamicPlatformPlugin, Logger, PlatformAccessory, PlatformConfig, Service, Characteristic } from 'homebridge';
+import { API, Logger, PlatformAccessory, PlatformConfig, Service, Characteristic, IndependentPlatformPlugin } from 'homebridge';
 
 import { PLATFORM_NAME, PLUGIN_NAME, TTY } from './settings';
 
@@ -6,7 +6,7 @@ import rfxcom from 'rfxcom';
 
 import { Remote } from './Remote';
 
-export class RFXComPlatform implements DynamicPlatformPlugin {
+export class RFXComPlatform implements IndependentPlatformPlugin {
   public readonly Service: typeof Service = this.api.hap.Service;
   public readonly Characteristic: typeof Characteristic = this.api.hap.Characteristic;
 
