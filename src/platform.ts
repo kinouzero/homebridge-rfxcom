@@ -25,39 +25,43 @@ export class RFXComPlatform implements DynamicPlatformPlugin {
     public readonly config: PlatformConfig,
     public readonly api: API,
   ) {
-    this.log    = log;
+    this.log = log;
     this.config = config || { platform: PLUGIN_NAME };
-    this.tty    = this.config.tty || TTY;
-    this.debug  = this.config.debug || false;
+    this.tty = this.config.tty || TTY;
+    this.debug = this.config.debug || false;
 
     const rfyRemotes = this.config.rfyRemotes || this.config.rfyremotes;
-    this.rfyRemotes  = Array.isArray(rfyRemotes) ? rfyRemotes : [];
+    this.rfyRemotes = Array.isArray(rfyRemotes) ? rfyRemotes : [];
 
     this.rfxtrx = new rfxcom.RfxCom(this.tty, { debug: this.debug });
-    this.rfy    = new rfxcom.Rfy(this.rfxtrx, rfxcom.rfy.RFY);
+    this.rfy = new rfxcom.Rfy(this.rfxtrx, rfxcom.rfy.RFY);
 
     this.rfxtrx.on('disconnect', () => this.log.debug('ERROR: RFXtrx disconnect'));
     this.rfxtrx.on('connectfailed', () => this.log.debug('ERROR: RFXtrx connect fail'));
 
-    if(api) {
-      this.api = api;      
+    if (api) {
+      this.api = api;
       this.api.on('didFinishLaunching', () => this.discoverDevices());
     }
   }
 
-   /**
-   * Load accessory from cache
-   * @param {PlatformAccessory} accessory
-   */
+  /**
+  * Load accessory from cache
+  * @param {PlatformAccessory} accessory
+  */
   configureAccessory(accessory: PlatformAccessory) {
-    if(!accessory) return;
+    if (!accessory) {
+      return;
+    }
 
-    let id = accessory.context.id;
+    const id = accessory.context.id;
 
     this.log.info(`Loaded from cache: ${accessory.context.name} (${id})`);
 
     const existing = this.accessories[id];
-    if(existing) this.removeAccessory(existing);
+    if (existing) {
+      this.removeAccessory(existing);
+    }
 
     this.accessories[id] = accessory;
   }
@@ -67,7 +71,9 @@ export class RFXComPlatform implements DynamicPlatformPlugin {
    * @param {PlatformAccessory} accessory
    */
   removeAccessory(accessory: PlatformAccessory) {
-    if(!accessory) return;
+    if (!accessory) {
+      return;
+    }
 
     this.log.info(`${accessory.context.name} removed from HomeBridge.`);
 
@@ -87,18 +93,20 @@ export class RFXComPlatform implements DynamicPlatformPlugin {
    */
   discoverDevices() {
     // Add or update accessory in HomeKit
-    if(this.rfyRemotes.length) {
+    if (this.rfyRemotes.length) {
       // Compare local config against RFXCom-registered remotes
       this.listRemotes()
         .then(deviceRemotes => {
-          if(this.debug) this.log.debug(`Received ${deviceRemotes.length} remote(s) from device`);
+          if (this.debug) {
+            this.log.debug(`Received ${deviceRemotes.length} remote(s) from device`);
+          }
 
           this.rfyRemotes.forEach(rfyRemote => {
             // Handle different capitalizations of deviceID
             const deviceID = rfyRemote.deviceID = rfyRemote.deviceID ?? rfyRemote.deviceId;
-            const device   = deviceRemotes.find(dR => deviceID === dR.deviceId);
+            const device = deviceRemotes.find(dR => deviceID === dR.deviceId);
 
-            if(device) {
+            if (device) {
               // Remote found on the RFXCom device
               new Remote(this, rfyRemote, device);
             } else {
@@ -106,14 +114,16 @@ export class RFXComPlatform implements DynamicPlatformPlugin {
               const msg = deviceRemotes.map(dR => `${dR.deviceId}`).join(', ');
               this.log.debug(`ERROR: RFY remote ${deviceID} not found. Found: ${msg}`);
             }
-          })
+          });
         })
         .catch(error => {
           this.log.debug(`UNHANDLED ERROR : ${error}`);
-          if(this.debug) console.log(error.stack);
-        })
+          if (this.debug) {
+            this.log.debug(error.stack);
+          }
+        });
     } else {
-      this.log.debug(`WARNING: No RFY remotes configured`);
+      this.log.debug('WARNING: No RFY remotes configured');
       this.removeAccessories();
     }
   }
@@ -121,14 +131,16 @@ export class RFXComPlatform implements DynamicPlatformPlugin {
   /**
    * List remotes from RFXtrx
    */
-   listRemotes(): Promise<any[]> {
-    return new Promise((resolve, reject) => {
+  listRemotes(): Promise<any[]> {
+    return new Promise((resolve) => {
       this.rfxtrx.once('rfyremoteslist', (remotes: any[]) => resolve(remotes));
 
       this.rfxtrx.initialise(() => {
-        if(this.debug) this.log.debug('RFXtrx initialized, listing remotes...');
+        if (this.debug) {
+          this.log.debug('RFXtrx initialized, listing remotes...');
+        }
         this.rfy.listRemotes();
-      })
-    })
+      });
+    });
   }
 }

@@ -22,15 +22,15 @@ export const OPEN_CLOSE_SECONDS = 25;
  * Enum of directions
  */
 export const DIRECTION = {
-  up   : 'Up',
-  down : 'Down',
-  stop : 'Stop'
-}
+  up: 'Up',
+  down: 'Down',
+  stop: 'Stop',
+};
 
 /**
  * Enum of modes
  */
 export const MODE = {
   switch: 'switch',
-  target: 'target'
-}
+  target: 'target',
+};
