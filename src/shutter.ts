@@ -21,7 +21,7 @@ export class ShutterAccessory {
     positionState: this.platform.Characteristic.PositionState.STOPPED,
     currentPosition: 50,
     targetPosition: 50,
-    duration: OPEN_CLOSE_SECONDS,
+    duration: this.remote.openCloseSeconds ?? OPEN_CLOSE_SECONDS,
     timeout: null,
     process: null,
   };
