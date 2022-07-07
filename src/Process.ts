@@ -1,140 +1,122 @@
-import { DIRECTION, MODE } from './settings';
-
-import { Remote } from './Remote';
-import { ShutterAccessory } from './ShutterAccessory';
-import { Logger } from 'homebridge';
+// Homebridge
+import { Logger, PlatformAccessory } from 'homebridge';
+// Settings
+import { TYPE } from './settings';
+// Platform
+import { RFXComPlatform } from './platform';
+// Accessories
+import { SwitchAccessoryPlugin } from './switch';
 
 export class Process {
-  public readonly config: any;
-  public readonly log: Logger;
-  public readonly api: object;
-  public readonly debug: boolean;
-  public readonly rfy: any;
+  /**
+   * Log
+   */
+  private log: Logger;
+  /**
+   * Rfy API
+   */
+  private rfy: any;
+  /**
+   * Debug mode
+   */
+  private debug: boolean;
 
+  /**
+   * Constructor
+   * @param {RFXComPlatform} platform
+   */
   constructor(
-    private readonly remote: Remote,
+    private platform: RFXComPlatform,
   ) {
-    this.log = remote.platform.log;
-    this.config = remote.platform.config;
-    this.api = remote.platform.api;
-    this.debug = this.config.debug || false;
-
-    this.rfy = remote.platform.rfy;
-    this.remote = remote;
+    // Init
+    this.log = platform.log;
+    this.rfy = platform.rfy;
+    this.debug = platform.debug || false;
   }
 
   /**
    * Start process
    */
   start() {
-    let _shutter: ShutterAccessory;
-    if (!this.remote || !(_shutter = this.remote.shutter) ||
-      (this.remote.context.direction === DIRECTION.up && _shutter.context.currentPosition === 100) ||
-      (this.remote.context.direction === DIRECTION.down && _shutter.context.currentPosition === 0)) {
-      return;
-    }
+    const _shutter: PlatformAccessory = this.platform.shutter.accessory;
+    if ((_shutter.context.positionState === this.platform.Characteristic.PositionState.INCREASING && _shutter.context.currentPosition === 100) ||
+      (_shutter.context.positionState === this.platform.Characteristic.PositionState.DECREASING && _shutter.context.currentPosition === 0)) return;
 
     // Stop if process is running
-    if (this.remote.context.process) {
-      this.stop();
-    }
+    if (_shutter.context.process) this.stop();
 
-    // Switches
-    for (const d in this.remote.switches) {
-      this.remote.switches[d].setOn(d === this.remote.context.direction);
-      this.remote.switches[d].reset(this.remote);
-    }
+    // Switch Up
+    const switchUp: SwitchAccessoryPlugin = this.platform.switches[TYPE.Up];
+    switchUp.setOn(_shutter.context.positionState === this.platform.Characteristic.PositionState.INCREASING);
+    switchUp.reset();
+
+    // Switch Down
+    const switchDown: SwitchAccessoryPlugin = this.platform.switches[TYPE.Down];
+    switchDown.setOn(_shutter.context.positionState === this.platform.Characteristic.PositionState.DECREASING);
+    switchDown.reset();
 
     // RFY Commands Up/Down
-    if (this.remote.context.direction === DIRECTION.up) {
-      _shutter.setPositionState(this.remote.platform.Characteristic.PositionState.INCREASING);
-      this.rfy.up(this.remote.rfyRemote.deviceID);
-    } else if (this.remote.context.direction === DIRECTION.down) {
-      _shutter.setPositionState(this.remote.platform.Characteristic.PositionState.DECREASING);
-      this.rfy.down(this.remote.rfyRemote.deviceID);
+    switch (_shutter.context.positionState) {
+      case this.platform.Characteristic.PositionState.INCREASING:
+        this.rfy.up(_shutter.context.deviceID);
+        break;
+      case this.platform.Characteristic.PositionState.DECREASING:
+        this.rfy.down(_shutter.context.deviceID);
+        break;
     }
 
-    // Start new process
-    if ([DIRECTION.up, DIRECTION.down].includes(this.remote.context.direction)) {
-      this.remote.context.process = setInterval(() => this.processing(), 1000);
-    }
+    // Launch processing
+    _shutter.context.process = setInterval(() => this.processing(), 1000);
 
-    if (this.debug) {
-      this.log.debug(`Remote ${this.remote.rfyRemote.deviceID}: Starting ${_shutter.context.name}, 
-                      direction=${this.remote.context.direction}, currentPosition=${_shutter.context.currentPosition}`);
-    } else {
-      this.log.info(`Remote ${this.remote.rfyRemote.deviceID}: Processing RFY ${this.remote.context.direction}...`);
-    }
+    this.log.info(`Remote ${_shutter.context.deviceID}: Starting ${_shutter.context.name}...`);
+    if (this.debug) this.log.debug(`positionState=${_shutter.context.positionState}, currentPosition=${_shutter.context.currentPosition}.`);
   }
 
   /**
    * Stop process
    */
   stop() {
-    let _shutter: ShutterAccessory;
-    if (!this.remote || !(_shutter = this.remote.shutter)) {
-      return;
-    }
+    const _shutter: PlatformAccessory = this.platform.shutter.accessory;
 
     // Stop process
-    clearInterval(this.remote.context.process);
-
-    // Set direction to stop
-    if (this.remote.context.direction === DIRECTION.stop) {
-      return;
-    }
-    this.remote.context.direction = DIRECTION.stop;
+    clearInterval(_shutter.context.process);
 
     // Reset switches
-    for (const d in this.remote.switches) {
-      this.remote.switches[d].setOn(false);
-    }
+    for (const s in this.platform.switches) this.platform.switches[s].setOn(false);
 
     // Set shutter
-    _shutter.setPositionState(this.remote.platform.Characteristic.PositionState.STOPPED);
-    _shutter.setTargetPosition(_shutter.context.currentPosition);
+    this.platform.shutter.setPositionState(this.platform.Characteristic.PositionState.STOPPED);
+    this.platform.shutter.setTargetPosition(_shutter.context.currentPosition);
 
     // RFY Command Stop
-    if (_shutter.context.currentPosition < 100 && _shutter.context.currentPosition > 0) {
-      this.rfy.stop(this.remote.rfyRemote.deviceID);
-    }
+    if (_shutter.context.currentPosition < 100 && _shutter.context.currentPosition > 0) this.rfy.stop(_shutter.context.deviceID);
 
-    if (this.debug) {
-      this.log.debug(`Remote ${this.remote.rfyRemote.deviceID}: Stopping ${_shutter.context.name}, 
-                      currentPosition=${_shutter.context.currentPosition}`);
-    }
+    this.log.info(`Remote ${_shutter.context.deviceID}: Stopping ${_shutter.context.name}.`);
+    if (this.debug) this.log.debug(`Remote ${_shutter.context.deviceID}: currentPosition=${_shutter.context.currentPosition}.`);
   }
 
   /**
    * Processing
    */
   processing() {
-    let _shutter: ShutterAccessory;
-    if (!this.remote || !(_shutter = this.remote.shutter)) {
-      return;
-    }
+    const _shutter: PlatformAccessory = this.platform.shutter.accessory;
 
-    // Set shutter current position
+    // Calcul & set shutter current position
     let value = _shutter.context.currentPosition;
-    if (this.remote.context.direction === DIRECTION.up) {
-      value += (100 / this.remote.context.duration);
-    } else if (this.remote.context.direction === DIRECTION.down) {
-      value -= (100 / this.remote.context.duration);
-    }
-    _shutter.setCurrentPosition(value);
+    if (_shutter.context.positionState === this.platform.Characteristic.PositionState.INCREASING) value += (100 / _shutter.context.duration);
+    else if (_shutter.context.positionState === this.platform.Characteristic.PositionState.DECREASING) value -= (100 / _shutter.context.duration);
+    this.platform.shutter.setCurrentPosition(value);
 
-    if (this.debug) {
-      this.log.debug(`Remote ${this.remote.rfyRemote.deviceID}: Processing ${_shutter.context.name}, 
-                      currentPosition=${_shutter.context.currentPosition}`);
-    } else {
-      this.log.info(`Remote ${this.remote.rfyRemote.deviceID}: Stopping RFY ${this.remote.context.direction}`);
-    }
+    if (this.debug) this.log.debug(`Remote ${_shutter.context.deviceID}: Processing ${_shutter.context.name}, 
+      currentPosition=${_shutter.context.currentPosition}.`);
+    else this.log.info(`Remote ${_shutter.context.deviceID}: Stopping RFY ${_shutter.context.positionState}.`);
 
     // Stop
-    if (_shutter.context.currentPosition === 100 || _shutter.context.currentPosition === 0 || (this.remote.context.mode === MODE.target && (
-      (_shutter.context.currentPosition <= _shutter.context.targetPosition && this.remote.context.direction === DIRECTION.down) ||
-      (_shutter.context.currentPosition >= _shutter.context.targetPosition && this.remote.context.direction === DIRECTION.up)))) {
-      this.stop();
-    }
+    if (_shutter.context.currentPosition === 100 || _shutter.context.currentPosition === 0 ||
+      ((_shutter.context.currentPosition <= _shutter.context.targetPosition &&
+        _shutter.context.positionState === this.platform.Characteristic.PositionState.DECREASING) ||
+        (_shutter.context.currentPosition >= _shutter.context.targetPosition &&
+          _shutter.context.positionState === this.platform.Characteristic.PositionState.INCREASING))
+    ) this.stop();
   }
 }

@@ -6,7 +6,7 @@ export const PLATFORM_NAME = 'RFXCom 3';
 /**
  * This must match the name of your plugin as defined the package.json
  */
-export const PLUGIN_NAME = 'homebridge-plugin-rfxcom';
+export const PLUGIN_NAME = 'homebridge-plugin-rfxcom-3';
 
 /**
  * Default tty device
@@ -19,18 +19,10 @@ export const TTY = '/dev/ttyUSB0';
 export const OPEN_CLOSE_SECONDS = 25;
 
 /**
- * Enum of directions
+ * Enum of types
  */
-export const DIRECTION = {
-  up: 'Up',
-  down: 'Down',
-  stop: 'Stop',
-};
-
-/**
- * Enum of modes
- */
-export const MODE = {
-  switch: 'switch',
-  target: 'target',
+export const TYPE = {
+  Shutter: 'Shutter',
+  Up: 'Up',
+  Down: 'Down',
 };
