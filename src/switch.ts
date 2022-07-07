@@ -59,6 +59,7 @@ export class SwitchAccessory {
         // If button is stopped
         if (!value) {
           shutter.setPositionState(this.platform.Characteristic.PositionState.STOPPED);
+          shutter.setCurrentPosition(Math.round(shutter.accessory.context.currentPosition));
           shutter.setTargetPosition(shutter.accessory.context.currentPosition);
           process.stop();
 

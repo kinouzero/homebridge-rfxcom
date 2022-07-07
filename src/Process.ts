@@ -126,6 +126,7 @@ export class Process {
       // RFY command Stop if needed
       if (_shutter.context.currentPosition < 100 && _shutter.context.currentPosition > 0) this.rfy.stop(this.remote.deviceID);
       // Set shutter state
+      shutter.setCurrentPosition(Math.round(_shutter.context.currentPosition));
       shutter.setPositionState(this.platform.Characteristic.PositionState.STOPPED);
       // Stop process
       this.stop();
