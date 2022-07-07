@@ -47,7 +47,7 @@ export class RFXComPlatform implements IndependentPlatformPlugin {
     this.tty = this.config.tty || TTY;
     this.debug = this.config.debug || false;
 
-    const remotes = this.config.remotes || this.config.remotes;
+    const remotes = this.config.rfyRemotes || this.config.RfyRemotes;
     this.remotes = Array.isArray(remotes) ? remotes : [];
 
     this.rfxtrx = new rfxcom.RfxCom(this.tty, { debug: this.debug });
