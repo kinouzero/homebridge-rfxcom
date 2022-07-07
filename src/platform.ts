@@ -1,12 +1,12 @@
 // Homebridge
 import { API, Logger, PlatformAccessory, PlatformConfig, Service, Characteristic, IndependentPlatformPlugin } from 'homebridge';
 // Settings
-import { PLATFORM_NAME, PLUGIN_NAME, TTY, TYPE } from './settings';
+import { PLATFORM_NAME, PLUGIN_NAME, TTY, TYPE, WITH_SWITCHES } from './settings';
 // Rfxcom API
 import rfxcom from 'rfxcom';
 // Accessories
-import { ShutterAccessoryPlugin } from './shutter';
-import { SwitchAccessoryPlugin } from './switch';
+import { ShutterAccessory } from './shutter';
+import { SwitchAccessory } from './switch';
 
 /**
  * RFXCom platform to interact with Somfy/Simu RTS shutters
@@ -20,9 +20,9 @@ export class RFXComPlatform implements IndependentPlatformPlugin {
   // Store Rfy remotes
   public remotes: any[] = [];
   // Store switches Up|Down plugin
-  public switches: SwitchAccessoryPlugin[] = [];
+  public switches: any[] = [];
   // Store shutter plugin
-  public shutter!: ShutterAccessoryPlugin;
+  public shutter: any[] = [];
 
   // TTY
   public tty: string;
@@ -32,6 +32,8 @@ export class RFXComPlatform implements IndependentPlatformPlugin {
   public rfxtrx: any;
   // Rfxcom Rfy API
   public rfy: any;
+  // Create switch accessories
+  public withSwitches: any;
 
   /**
    * Constructor
@@ -46,6 +48,7 @@ export class RFXComPlatform implements IndependentPlatformPlugin {
   ) {
     this.tty = this.config.tty || TTY;
     this.debug = this.config.debug || false;
+    this.withSwitches = this.config.withSwitches || WITH_SWITCHES;
 
     const remotes = this.config.rfyRemotes || this.config.RfyRemotes;
     this.remotes = Array.isArray(remotes) ? remotes : [];
@@ -58,7 +61,7 @@ export class RFXComPlatform implements IndependentPlatformPlugin {
 
     if (api) {
       this.api = api;
-      this.api.on('didFinishLaunching', () => this.discoverDevices());
+      this.api.on('didFinishLaunching', () => this.discoverRemotes());
     }
   }
 
@@ -71,9 +74,43 @@ export class RFXComPlatform implements IndependentPlatformPlugin {
 
     this.log.info(`Loaded from cache: ${accessory.context.name} (${id})`);
 
-    if (this.accessories[id]) this.removeAccessory(this.accessories[id]);
-
     this.accessories[id] = accessory;
+  }
+
+  /**
+   * Add accessory to the platform
+   * @param {any} remote
+   * @param {string} type Shutter|Up|Down
+   */
+  addAccessory(remote: any, type: string) {
+    // Check if accessory already exist in cache
+    const id = `${remote.deviceID}/${type}`;
+    let accessory = this.accessories[id];
+    if (accessory) this.removeAccessory(accessory);
+
+    // Create platform accessory if doesn't exist
+    const name = `${remote.name} ${type}`;
+    const uuid = this.api.hap.uuid.generate(id);
+    accessory = new this.api.platformAccessory(name, uuid);
+    if (this.debug) this.log.debug(`Remote ${remote.deviceID}: Adding ${name} (${id}) uuid=${uuid}...`);
+
+    // Create new accessory
+    switch (type) {
+      case TYPE.Shutter:
+        this.shutter[remote.deviceID] = new ShutterAccessory(this, accessory, remote);
+        break;
+      case TYPE.Up:
+      case TYPE.Down:
+        if(!this.withSwitches) return;
+        this.switches[remote.deviceID][type] = new SwitchAccessory(this, accessory, remote, type);
+        break;
+    }
+
+    // Register platform accessory
+    this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
+    this.accessories[id] = accessory;
+
+    this.log.info(`Remote ${remote.deviceID}: Added ${type}.`);
   }
 
   /**
@@ -81,7 +118,7 @@ export class RFXComPlatform implements IndependentPlatformPlugin {
    * @param {PlatformAccessory} accessory
    */
   removeAccessory(accessory: PlatformAccessory) {
-    this.log.info(`Removed from Homebridge: ${accessory.context.name} .`);
+    this.log.info(`Removed from Homebridge: ${accessory.context.name}.`);
 
     this.api.unregisterPlatformAccessories(PLATFORM_NAME, PLUGIN_NAME, [accessory]);
     delete this.accessories[accessory.context.id];
@@ -97,27 +134,26 @@ export class RFXComPlatform implements IndependentPlatformPlugin {
   /**
    * Discover devices
    */
-  discoverDevices() {
+  discoverRemotes() {
     // Add or update accessory in HomeKit
     if (this.remotes.length)
       // Compare local config against RFXCom-registered remotes
       this.listRemotes()
-        .then(deviceRemotes => {
-          if (this.debug) this.log.debug(`Received ${deviceRemotes.length} remote(s) from device`);
+        .then(rfyRemotes => {
+          if (this.debug) this.log.debug(`Received ${rfyRemotes.length} remote(s) from device`);
 
           this.remotes.forEach(remote => {
             // Handle different capitalizations of deviceID
-            const deviceID = remote.deviceID = remote.deviceID ?? remote.deviceId;
-            const device = deviceRemotes.find(dR => deviceID === dR.deviceId);
+            remote.deviceID = remote.deviceID ?? remote.deviceId;
 
-            if (device) {
-              // Add accessories
-              for (const t in TYPE) this.addAccessory(remote, device, t);
-              this.log.info(`Remote ${remote.deviceID}: Added shutter and switches Up/Down.`);
+            if (rfyRemotes.find(r => remote.deviceID === r.deviceId)) {
+              // Add Shutter
+              this.switches[remote.deviceID] = [];
+              for(const t in TYPE) this.addAccessory(remote, t);
             } else {
               // No remote found on device
-              const msg = deviceRemotes.map(dR => `${dR.deviceId}`).join(', ');
-              this.log.debug(`ERROR: RFY remote ${deviceID} not found. Found: ${msg}`);
+              const msg = rfyRemotes.map(r => `${r.deviceId}`).join(', ');
+              this.log.info(`ERROR: RFY remote ${remote.deviceID} not found. Found: ${msg}`);
             }
           });
         })
@@ -136,47 +172,12 @@ export class RFXComPlatform implements IndependentPlatformPlugin {
    */
   listRemotes(): Promise<any[]> {
     return new Promise((resolve) => {
-      this.rfxtrx.once('remoteslist', (remotes: any[]) => resolve(remotes));
+      this.rfxtrx.once('rfyremoteslist', (remotes: any[]) => resolve(remotes));
 
       this.rfxtrx.initialise(() => {
         if (this.debug) this.log.debug('RFXtrx initialized, listing remotes...');
         this.rfy.listRemotes();
       });
     });
-  }
-
-  /**
-   * Add accessory to the platform
-   * @param {any} remote
-   * @param {any} device
-   * @param {string} type Shutter|Up|Down
-   */
-  addAccessory(remote: any, device: any, type: string) {
-    // Check if accessory already exist in cache
-    const id = `${remote.deviceID}/${type}`;
-    const name = `${remote.name} ${type}`;
-    const uuid = this.api.hap.uuid.generate(id);
-
-    // If yes remove it
-    if (this.accessories[id]) this.removeAccessory(this.accessories[id]);
-
-    // Create platform accessory
-    const accessory = new this.api.platformAccessory(name, uuid);
-    if (this.debug) this.log.debug(`Remote ${remote.deviceID}: Adding ${name} (${id}) uuid=${uuid}...`);
-
-    // Create new accessory
-    switch (type) {
-      case TYPE.Shutter:
-        this.shutter = new ShutterAccessoryPlugin(this, accessory, remote, device);
-        break;
-      case TYPE.Up:
-      case TYPE.Down:
-        this.switches[type] = new SwitchAccessoryPlugin(this, accessory, remote, device, type);
-        break;
-    }
-
-    // Register platform accessory
-    this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
-    this.accessories[id] = accessory;
   }
 }

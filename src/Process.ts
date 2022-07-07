@@ -5,7 +5,8 @@ import { TYPE } from './settings';
 // Platform
 import { RFXComPlatform } from './platform';
 // Accessories
-import { SwitchAccessoryPlugin } from './switch';
+import { SwitchAccessory } from './switch';
+import { ShutterAccessory } from './shutter';
 
 export class Process {
   /**
@@ -27,6 +28,7 @@ export class Process {
    */
   constructor(
     private platform: RFXComPlatform,
+    private readonly remote: any,
   ) {
     // Init
     this.log = platform.log;
@@ -38,78 +40,81 @@ export class Process {
    * Start process
    */
   start() {
-    const _shutter: PlatformAccessory = this.platform.shutter.accessory;
+    const _shutter: PlatformAccessory = this.platform.shutter[this.remote.deviceID].accessory;
+
     if ((_shutter.context.positionState === this.platform.Characteristic.PositionState.INCREASING && _shutter.context.currentPosition === 100) ||
       (_shutter.context.positionState === this.platform.Characteristic.PositionState.DECREASING && _shutter.context.currentPosition === 0)) return;
 
-    // Stop if process is running
+    // Stop process if already running
     if (_shutter.context.process) this.stop();
 
-    // Switch Up
-    const switchUp: SwitchAccessoryPlugin = this.platform.switches[TYPE.Up];
-    switchUp.setOn(_shutter.context.positionState === this.platform.Characteristic.PositionState.INCREASING);
-    switchUp.reset();
+    if(this.platform.withSwitches) {
+      // Switch Up
+      const switchUp: SwitchAccessory = this.platform.switches[this.remote.deviceID][TYPE.Up];
+      switchUp.setOn(_shutter.context.positionState === this.platform.Characteristic.PositionState.INCREASING);
 
-    // Switch Down
-    const switchDown: SwitchAccessoryPlugin = this.platform.switches[TYPE.Down];
-    switchDown.setOn(_shutter.context.positionState === this.platform.Characteristic.PositionState.DECREASING);
-    switchDown.reset();
+      // Switch Down
+      const switchDown: SwitchAccessory = this.platform.switches[this.remote.deviceID][TYPE.Down];
+      switchDown.setOn(_shutter.context.positionState === this.platform.Characteristic.PositionState.DECREASING);
+    }
 
     // RFY Commands Up/Down
     switch (_shutter.context.positionState) {
       case this.platform.Characteristic.PositionState.INCREASING:
-        this.rfy.up(_shutter.context.deviceID);
+        this.rfy.up(this.remote.deviceID);
         break;
       case this.platform.Characteristic.PositionState.DECREASING:
-        this.rfy.down(_shutter.context.deviceID);
+        this.rfy.down(this.remote.deviceID);
         break;
     }
 
     // Launch processing
-    _shutter.context.process = setInterval(() => this.processing(), 1000);
+    _shutter.context.process = setInterval(() => this.processing(), 250);
 
     this.log.info(`Remote ${_shutter.context.deviceID}: Starting ${_shutter.context.name}...`);
-    if (this.debug) this.log.debug(`positionState=${_shutter.context.positionState}, currentPosition=${_shutter.context.currentPosition}.`);
+    if (this.debug) {
+      this.log.debug(`Remote ${_shutter.context.deviceID}: currentPosition=${_shutter.context.currentPosition}.`);
+      this.log.debug(`Remote ${_shutter.context.deviceID}: targetPosition=${_shutter.context.targetPosition}.`);
+      this.log.debug(`Remote ${_shutter.context.deviceID}: positionState=${_shutter.context.positionState}.`);
+    }
   }
 
   /**
    * Stop process
    */
   stop() {
-    const _shutter: PlatformAccessory = this.platform.shutter.accessory;
+    const shutter: ShutterAccessory = this.platform.shutter[this.remote.deviceID];
+    const _shutter: PlatformAccessory = shutter.accessory;
 
     // Stop process
     clearInterval(_shutter.context.process);
 
-    // Reset switches
-    for (const s in this.platform.switches) this.platform.switches[s].setOn(false);
-
-    // Set shutter
-    this.platform.shutter.setPositionState(this.platform.Characteristic.PositionState.STOPPED);
-    this.platform.shutter.setTargetPosition(_shutter.context.currentPosition);
-
-    // RFY Command Stop
-    if (_shutter.context.currentPosition < 100 && _shutter.context.currentPosition > 0) this.rfy.stop(_shutter.context.deviceID);
+    // Reset switches if exists
+    if(this.platform.withSwitches) {
+      const switches = this.platform.switches[this.remote.deviceID];
+      for (const s in switches) switches[s].setOn(false);
+    }
 
     this.log.info(`Remote ${_shutter.context.deviceID}: Stopping ${_shutter.context.name}.`);
-    if (this.debug) this.log.debug(`Remote ${_shutter.context.deviceID}: currentPosition=${_shutter.context.currentPosition}.`);
+    if (this.debug) {
+      this.log.debug(`Remote ${_shutter.context.deviceID}: currentPosition=${_shutter.context.currentPosition}.`);
+      this.log.debug(`Remote ${_shutter.context.deviceID}: targetPosition=${_shutter.context.targetPosition}.`);
+      this.log.debug(`Remote ${_shutter.context.deviceID}: positionState=${_shutter.context.positionState}.`);
+    }
   }
 
   /**
    * Processing
    */
   processing() {
-    const _shutter: PlatformAccessory = this.platform.shutter.accessory;
+    const shutter: ShutterAccessory = this.platform.shutter[this.remote.deviceID];
+    const _shutter: PlatformAccessory = shutter.accessory;
 
     // Calcul & set shutter current position
     let value = _shutter.context.currentPosition;
-    if (_shutter.context.positionState === this.platform.Characteristic.PositionState.INCREASING) value += (100 / _shutter.context.duration);
-    else if (_shutter.context.positionState === this.platform.Characteristic.PositionState.DECREASING) value -= (100 / _shutter.context.duration);
-    this.platform.shutter.setCurrentPosition(value);
-
-    if (this.debug) this.log.debug(`Remote ${_shutter.context.deviceID}: Processing ${_shutter.context.name}, 
-      currentPosition=${_shutter.context.currentPosition}.`);
-    else this.log.info(`Remote ${_shutter.context.deviceID}: Stopping RFY ${_shutter.context.positionState}.`);
+    if (_shutter.context.positionState === this.platform.Characteristic.PositionState.INCREASING) value += (100 / _shutter.context.duration) / 4;
+    else if (_shutter.context.positionState === this.platform.Characteristic.PositionState.DECREASING) value -= (100 / _shutter.context.duration) / 4;
+    shutter.setCurrentPosition(value);
 
     // Stop
     if (_shutter.context.currentPosition === 100 || _shutter.context.currentPosition === 0 ||
@@ -117,6 +122,13 @@ export class Process {
         _shutter.context.positionState === this.platform.Characteristic.PositionState.DECREASING) ||
         (_shutter.context.currentPosition >= _shutter.context.targetPosition &&
           _shutter.context.positionState === this.platform.Characteristic.PositionState.INCREASING))
-    ) this.stop();
+    ) {
+      // RFY command Stop if needed
+      if (_shutter.context.currentPosition < 100 && _shutter.context.currentPosition > 0) this.rfy.stop(this.remote.deviceID);
+      // Set shutter state
+      shutter.setPositionState(this.platform.Characteristic.PositionState.STOPPED);
+      // Stop process
+      this.stop();
+    }
   }
 }

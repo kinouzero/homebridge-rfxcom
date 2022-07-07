@@ -19,6 +19,10 @@ export const TTY = '/dev/ttyUSB0';
 export const OPEN_CLOSE_SECONDS = 25;
 
 /**
+ * Create switch accessories
+ */
+export const WITH_SWITCHES = false;
+/**
  * Enum of types
  */
 export const TYPE = {

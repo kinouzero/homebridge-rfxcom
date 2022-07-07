@@ -10,7 +10,7 @@ import { Process } from './process';
 /**
  * Switch Accessory
  */
-export class SwitchAccessoryPlugin {
+export class SwitchAccessory {
   /**
    * Context
    */
@@ -33,7 +33,6 @@ export class SwitchAccessoryPlugin {
     private readonly platform: RFXComPlatform,
     public accessory: PlatformAccessory,
     private remote: any,
-    private device: any,
     private readonly direction: string,
   ) {
     // Set context
@@ -42,9 +41,9 @@ export class SwitchAccessoryPlugin {
     // Set accessory information
     this.accessory.getService(this.platform.Service.AccessoryInformation)!
       .setCharacteristic(this.platform.Characteristic.Manufacturer, PLUGIN_NAME)
-      .setCharacteristic(this.platform.Characteristic.Model, this.device.remoteType)
+      .setCharacteristic(this.platform.Characteristic.Model, 'RFY')
       .setCharacteristic(this.platform.Characteristic.SerialNumber,
-        `${this.remote.deviceID}-${this.device.unitCode}-${direction}`);
+        `${this.remote.deviceID}/${direction}`);
 
     // Set service
     const service = this.accessory.getService(this.platform.Service.Switch)
@@ -54,20 +53,22 @@ export class SwitchAccessoryPlugin {
     service.getCharacteristic(this.platform.Characteristic.On)
       .onGet(this.getOn.bind(this))
       .on(CharacteristicEventTypes.SET, (value: CharacteristicValue, callback: CharacteristicSetCallback) => {
-        // New process
-        const process = new Process(this.platform);
+        const process = new Process(this.platform, this.remote);
+        const shutter = this.platform.shutter[this.remote.deviceID];
 
         // If button is stopped
         if (!value) {
+          shutter.setPositionState(this.platform.Characteristic.PositionState.STOPPED);
+          shutter.setTargetPosition(shutter.accessory.context.currentPosition);
           process.stop();
 
           return callback();
         }
 
         // Set shutter
-        this.platform.shutter.setPositionState(direction === TYPE.Up ?
+        shutter.setPositionState(direction === TYPE.Up ?
           this.platform.Characteristic.PositionState.INCREASING : this.platform.Characteristic.PositionState.DECREASING);
-        this.platform.shutter.setTargetPosition(direction === TYPE.Up ? 100 : 0);
+        shutter.setTargetPosition(direction === TYPE.Up ? 100 : 0);
 
         // Start process
         process.start();
@@ -92,17 +93,5 @@ export class SwitchAccessoryPlugin {
     this.accessory.context.on = value ?? this.accessory.context.on as boolean;
     if (this.platform.debug)
       this.platform.log.debug(`Remote ${this.accessory.context.deviceID}: Set ${this.accessory.context.name}, on=${value}.`);
-  }
-
-  /**
-   * Reset switch after a configurable amount of time
-   */
-  reset() {
-    clearTimeout(this.platform.shutter.accessory.context.timeout);
-
-    // New process
-    const process = new Process(this.platform);
-    this.platform.shutter.accessory.context.timeout = setTimeout(
-      () => process.stop(), this.platform.shutter.accessory.context.duration * 1000);
   }
 }

@@ -10,7 +10,7 @@ import { Process } from './process';
 /**
  * Shutter accessory
  */
-export class ShutterAccessoryPlugin {
+export class ShutterAccessory {
   /**
    * Context
    */
@@ -37,7 +37,6 @@ export class ShutterAccessoryPlugin {
     private readonly platform: RFXComPlatform,
     public accessory: PlatformAccessory,
     private remote: any,
-    private device: any,
   ) {
     // Set context
     this.accessory.context = this.context;
@@ -45,9 +44,9 @@ export class ShutterAccessoryPlugin {
     // Set accessory information
     this.accessory.getService(this.platform.Service.AccessoryInformation)!
       .setCharacteristic(this.platform.Characteristic.Manufacturer, PLUGIN_NAME)
-      .setCharacteristic(this.platform.Characteristic.Model, this.device.remoteType)
+      .setCharacteristic(this.platform.Characteristic.Model, 'RFY')
       .setCharacteristic(this.platform.Characteristic.SerialNumber,
-        `${this.remote.deviceID}-${this.device.unitCode}-Shutter`);
+        `${this.remote.deviceID}/Shutter`);
 
     // Set service
     const service = this.accessory.getService(this.platform.Service.WindowCovering)
@@ -64,10 +63,10 @@ export class ShutterAccessoryPlugin {
         if (this.accessory.context.currentPosition === value) return callback();
 
         // New process
-        const process = new Process(this.platform);
+        const process = new Process(this.platform, this.remote);
 
         // Set shutter
-        this.setPositionState(this.accessory.context.currentPosition < value ?
+        this.setPositionState(value > this.accessory.context.currentPosition ?
           this.platform.Characteristic.PositionState.INCREASING : this.platform.Characteristic.PositionState.DECREASING);
         this.setTargetPosition(value);
 
