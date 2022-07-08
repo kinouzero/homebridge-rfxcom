@@ -1,24 +1,32 @@
 // Homebridge
-import { CharacteristicEventTypes, CharacteristicSetCallback, CharacteristicValue, PlatformAccessory } from 'homebridge';
+import { CharacteristicEventTypes, CharacteristicSetCallback, CharacteristicValue, PlatformAccessory, Service } from 'homebridge';
 // Settings
 import { PLUGIN_NAME, TYPE } from './settings';
 // Platform
 import { RFXComPlatform } from './platform';
-// Process
-import { Process } from './process';
 
 /**
  * Switch Accessory
  */
 export class SwitchAccessory {
   /**
+   * Service
+   */
+  public readonly service: Service;
+
+  /**
+   * Characteristics
+   */
+  private readonly Characteristic = this.platform.Characteristic;
+  public readonly state: any;
+
+  /**
    * Context
    */
-  private readonly context: any = {
+  public readonly context: any = {
     id: `${this.remote.deviceID}/${this.direction}`,
     name: `${this.remote.name} ${this.direction}`,
     deviceID: this.remote.deviceID,
-    on: false,
   };
 
   /**
@@ -26,7 +34,6 @@ export class SwitchAccessory {
    * @param {RFXComPlatform} platform
    * @param {PlatformAccessory} accessory
    * @param {any} remote
-   * @param {any} device
    * @param {string} direction Up|Down
    */
   constructor(
@@ -35,64 +42,41 @@ export class SwitchAccessory {
     private remote: any,
     private readonly direction: string,
   ) {
-    // Set context
-    this.accessory.context = this.context;
-
     // Set accessory information
     this.accessory.getService(this.platform.Service.AccessoryInformation)!
-      .setCharacteristic(this.platform.Characteristic.Manufacturer, PLUGIN_NAME)
-      .setCharacteristic(this.platform.Characteristic.Model, 'RFY')
-      .setCharacteristic(this.platform.Characteristic.SerialNumber,
+      .setCharacteristic(this.Characteristic.Manufacturer, PLUGIN_NAME)
+      .setCharacteristic(this.Characteristic.Model, 'RFY')
+      .setCharacteristic(this.Characteristic.SerialNumber,
         `${this.remote.deviceID}/${direction}`);
 
     // Set service
-    const service = this.accessory.getService(this.platform.Service.Switch)
-      || this.accessory.addService(this.platform.Service.Switch);
+    this.service = this.accessory.getService(this.platform.Service.Switch) || this.accessory.addService(this.platform.Service.Switch);
+
+    // Set context
+    this.accessory.context.id = this.context.id;
+    this.accessory.context.name = this.context.name;
+
+    // Get characteristic
+    this.state = this.service.getCharacteristic(this.Characteristic.On);
 
     // Set event listeners
-    service.getCharacteristic(this.platform.Characteristic.On)
-      .onGet(this.getOn.bind(this))
-      .on(CharacteristicEventTypes.SET, (value: CharacteristicValue, callback: CharacteristicSetCallback) => {
-        const process = new Process(this.platform, this.remote);
-        const shutter = this.platform.shutter[this.remote.deviceID];
+    this.state.on(CharacteristicEventTypes.SET, (value: CharacteristicValue, callback: CharacteristicSetCallback) => {
+      // Shutter
+      const shutter = this.platform.shutter[this.remote.deviceID];
 
-        // If button is stopped
-        if (!value) {
-          shutter.setPositionState(this.platform.Characteristic.PositionState.STOPPED);
-          shutter.setCurrentPosition(Math.round(shutter.accessory.context.currentPosition));
-          shutter.setTargetPosition(shutter.accessory.context.currentPosition);
-          process.stop();
+      // If button is stopped
+      if (!value) {
+        shutter.state.setValue(this.Characteristic.PositionState.STOPPED);
 
-          return callback();
-        }
+        return callback();
+      }
 
-        // Set shutter
-        shutter.setPositionState(direction === TYPE.Up ?
-          this.platform.Characteristic.PositionState.INCREASING : this.platform.Characteristic.PositionState.DECREASING);
-        shutter.setTargetPosition(direction === TYPE.Up ? 100 : 0);
+      // Set shutter
+      shutter.target.setValue(direction === TYPE.Up ? 100 : 0);
 
-        // Start process
-        process.start();
+      callback();
+    });
 
-        callback();
-      });
-  }
-
-  /**
-   * Get switch state
-   * @return {Promise<CharacteristicValue>}
-   */
-  async getOn(): Promise<CharacteristicValue> {
-    return this.accessory.context.on;
-  }
-
-  /**
-   * Set switch state
-   * @param {CharacteristicValue} value
-   */
-  async setOn(value: CharacteristicValue) {
-    this.accessory.context.on = value ?? this.accessory.context.on as boolean;
-    if (this.platform.debug)
-      this.platform.log.debug(`Remote ${this.accessory.context.deviceID}: Set ${this.accessory.context.name}, on=${value}.`);
+    this.state.updateValue(false);
   }
 }

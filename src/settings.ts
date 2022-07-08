@@ -19,6 +19,11 @@ export const TTY = '/dev/ttyUSB0';
 export const OPEN_CLOSE_SECONDS = 25;
 
 /**
+ * Default overture
+ */
+export const DEFAULT_OVERTURE = 50;
+
+/**
  * Create switch accessories
  */
 export const WITH_SWITCHES = false;

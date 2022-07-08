@@ -1,26 +1,34 @@
 // Homebridge
-import { CharacteristicEventTypes, CharacteristicSetCallback, CharacteristicValue, PlatformAccessory } from 'homebridge';
+import { CharacteristicEventTypes, CharacteristicSetCallback, CharacteristicValue, PlatformAccessory, Service } from 'homebridge';
 // Settings
-import { PLUGIN_NAME, OPEN_CLOSE_SECONDS, TYPE } from './settings';
+import { PLUGIN_NAME, OPEN_CLOSE_SECONDS, TYPE, DEFAULT_OVERTURE } from './settings';
 // Platform
 import { RFXComPlatform } from './platform';
-// Process
-import { Process } from './process';
 
 /**
  * Shutter accessory
  */
 export class ShutterAccessory {
   /**
+   * Service
+   */
+  public readonly service: Service;
+
+  /**
+   * Characteristics
+   */
+  private readonly Characteristic = this.platform.Characteristic;
+  public readonly state: any;
+  public readonly current: any;
+  public readonly target: any;
+
+  /**
    * Context
    */
-  private readonly context: any = {
+  public readonly context: any = {
     id: `${this.remote.deviceID}/${TYPE.Shutter}`,
     name: `${this.remote.name} ${TYPE.Shutter}`,
     deviceID: this.remote.deviceID,
-    positionState: this.platform.Characteristic.PositionState.STOPPED,
-    currentPosition: 50,
-    targetPosition: 50,
     duration: this.remote.openCloseSeconds ?? OPEN_CLOSE_SECONDS,
     timeout: null,
     process: null,
@@ -31,111 +39,145 @@ export class ShutterAccessory {
    * @param {RFXComPlatform} platform
    * @param {PlatformAccessory} accessory
    * @param {any} remote
-   * @param {any} device
    */
   constructor(
     private readonly platform: RFXComPlatform,
     public accessory: PlatformAccessory,
     private remote: any,
   ) {
-    // Set context
-    this.accessory.context = this.context;
-
     // Set accessory information
     this.accessory.getService(this.platform.Service.AccessoryInformation)!
-      .setCharacteristic(this.platform.Characteristic.Manufacturer, PLUGIN_NAME)
-      .setCharacteristic(this.platform.Characteristic.Model, 'RFY')
-      .setCharacteristic(this.platform.Characteristic.SerialNumber,
-        `${this.remote.deviceID}/Shutter`);
+      .setCharacteristic(this.Characteristic.Manufacturer, PLUGIN_NAME)
+      .setCharacteristic(this.Characteristic.Model, 'RFY')
+      .setCharacteristic(this.Characteristic.SerialNumber, `${this.remote.deviceID}/Shutter`);
 
     // Set service
-    const service = this.accessory.getService(this.platform.Service.WindowCovering)
+    this.service = this.accessory.getService(this.platform.Service.WindowCovering)
       || this.accessory.addService(this.platform.Service.WindowCovering);
 
+    // Set context
+    this.accessory.context.id = this.context.id;
+    this.accessory.context.name = this.context.name;
+
+    // Get characteristics
+    this.state = this.service.getCharacteristic(this.Characteristic.PositionState);
+    this.current = this.service.getCharacteristic(this.Characteristic.CurrentPosition);
+    this.target = this.service.getCharacteristic(this.Characteristic.TargetPosition);
+
     // Set event listeners
-    service.getCharacteristic(this.platform.Characteristic.CurrentPosition)
-      .onGet(this.getCurrentPosition.bind(this));
-    service.getCharacteristic(this.platform.Characteristic.PositionState)
-      .onGet(this.getPositionState.bind(this));
-    service.getCharacteristic(this.platform.Characteristic.TargetPosition)
-      .onGet(this.getTargetPosition.bind(this))
-      .on(CharacteristicEventTypes.SET, (value: CharacteristicValue, callback: CharacteristicSetCallback) => {
-        if (this.accessory.context.currentPosition === value) return callback();
+    this.state.on(CharacteristicEventTypes.SET, (value: CharacteristicValue, callback: CharacteristicSetCallback) => {
+      this.state.updateValue(value);
+      if(this.platform.debug) this.platform.log.debug(`Remote ${this.context.deviceID}: state=${this.state.value}.`);
 
-        // New process
-        const process = new Process(this.platform, this.remote);
+      switch(this.state.value) {
+        case this.Characteristic.PositionState.STOPPED:
+          this.stop();
+          if (this.current.value < 100 && this.current.value > 0) this.platform.rfy.stop(this.remote.deviceID);
+          this.current.setValue(Math.round(this.current.value));
+          this.target.setValue(this.current.value);
+          break;
+        case this.Characteristic.PositionState.INCREASING:
+          this.start();
+          this.platform.rfy.up(this.remote.deviceID);
+          break;
+        case this.Characteristic.PositionState.DECREASING:
+          this.start();
+          this.platform.rfy.down(this.remote.deviceID);
+          break;
+      }
 
-        // Set shutter
-        this.setPositionState(value > this.accessory.context.currentPosition ?
-          this.platform.Characteristic.PositionState.INCREASING : this.platform.Characteristic.PositionState.DECREASING);
-        this.setTargetPosition(value);
+      callback();
+    });
+    this.target.on(CharacteristicEventTypes.SET, (value: CharacteristicValue, callback: CharacteristicSetCallback) => {
+      if(value === this.current.value) return callback();
+      // Set shutter
+      this.target.updateValue(value);
+      if(this.platform.debug) this.platform.log.debug(`Remote ${this.context.deviceID}: target=${this.target.value}.`);
 
-        // Start process
-        process.start();
+      this.state.setValue(this.target.value > this.current.value ?
+        this.Characteristic.PositionState.INCREASING : this.Characteristic.PositionState.DECREASING);
 
-        callback();
-      });
+      callback();
+    });
+
+    // Init shutter
+    this.state.updateValue(this.Characteristic.PositionState.STOPPED);
+    this.current.updateValue(DEFAULT_OVERTURE);
+    this.target.updateValue(this.current.value);
   }
 
   /**
-   * Get position state
-   * @return {Promise<CharacteristicValue>}
+   * Start shutter movement
    */
-  async getPositionState(): Promise<CharacteristicValue> {
-    return this.accessory.context.positionState;
+  start() {
+    if ((this.state.value === this.Characteristic.PositionState.INCREASING && this.current.value === 100) ||
+      (this.state.value === this.Characteristic.PositionState.DECREASING && this.current.value === 0)) {
+      this.state.setValue(this.Characteristic.PositionState.STOPPED);
+      return;
+    }
+
+    // Stop process if already running
+    if (this.context.process) clearInterval(this.context.process);
+
+    // Set switches to correct state
+    if(this.platform.withSwitches) {
+      const switches = this.platform.switches[this.remote.deviceID];
+      switches[TYPE.Up].state.updateValue(this.state.value === this.Characteristic.PositionState.INCREASING);
+      switches[TYPE.Down].state.updateValue(this.state.value === this.Characteristic.PositionState.DECREASING);
+    }
+
+    // Launch processing
+    this.context.process = setInterval(() => this.processing(), 250);
+
+    this.platform.log.info(`Remote ${this.context.deviceID}: Starting...`);
+    if (this.platform.debug) {
+      this.platform.log.debug(`Remote ${this.context.deviceID}: state=${this.state.value}.`);
+      this.platform.log.debug(`Remote ${this.context.deviceID}: current=${this.current.value}.`);
+      this.platform.log.debug(`Remote ${this.context.deviceID}: target=${this.target.value}.`);
+    }
   }
 
   /**
-   * Set position state
-   * @param {CharacteristicValue} value 0: Decreasing | 1: Increasing | 2: Stopped
+   * Stop shutter movement
    */
-  async setPositionState(value: CharacteristicValue) {
-    this.accessory.context.positionState = value ?? this.accessory.context.positionState as number;
-    if (this.platform.debug)
-      this.platform.log.debug(`Remote ${this.accessory.context.deviceID}: Set ${this.accessory.context.name}, positionState=${value}.`);
+  stop() {
+    // Stop process
+    clearInterval(this.context.process);
+
+    // Reset switches if exists
+    if(this.platform.withSwitches) {
+      const switches = this.platform.switches[this.remote.deviceID];
+      for (const s in switches) switches[s].state.updateValue(false);
+    }
+
+    this.platform.log.info(`Remote ${this.context.deviceID}: Stopping.`);
+    if (this.platform.debug) {
+      this.platform.log.debug(`Remote ${this.context.deviceID}: state=${this.state.value}.`);
+      this.platform.log.debug(`Remote ${this.context.deviceID}: current=${this.current.value}.`);
+      this.platform.log.debug(`Remote ${this.context.deviceID}: target=${this.target.value}.`);
+    }
   }
 
   /**
-   * Get current position
-   * @return {Promise<CharacteristicValue>}
+   * Processing shutter movement
    */
-  async getCurrentPosition(): Promise<CharacteristicValue> {
-    return this.accessory.context.currentPosition;
-  }
+  processing() {
+    // Calcul current position
+    let value:any = this.current.value;
+    if(!value) return;
+    if (this.state.value === this.Characteristic.PositionState.INCREASING) value += (100 / this.context.duration) / 4;
+    else if (this.state.value === this.Characteristic.PositionState.DECREASING) value -= (100 / this.context.duration) / 4;
+    if(value > 100) value = 100;
+    else if(value < 0) value = 0;
 
-  /**
-   * Set current position
-   * @param {CharacteristicValue} value between 0 and 100
-   */
-  async setCurrentPosition(value: CharacteristicValue) {
-    // Check value boundaries
-    if (value > 100) value = 100;
-    else if (value < 0) value = 0;
+    // Set current position
+    this.current.setValue(value);
+    if(this.platform.debug) this.platform.log.debug(`Remote ${this.context.deviceID}: current=${this.current.value}.`);
 
-    this.accessory.context.currentPosition = value ?? this.accessory.context.currentPosition as number;
-    if (this.platform.debug)
-      this.platform.log.debug(`Remote ${this.accessory.context.deviceID}: Set ${this.accessory.context.name}, currentPosition=${value}.`);
-  }
-
-  /**
-   * Get target position
-   * @return {Promise<CharacteristicValue>}
-   */
-  async getTargetPosition(): Promise<CharacteristicValue> {
-    return this.accessory.context.targetPosition;
-  }
-
-  /**
-   * Set target position
-   * @param {CharacteristicValue} value between 0 and 100
-   */
-  async setTargetPosition(value: CharacteristicValue) {
-    // Check value boundaries
-    if (value > 100) value = 100;
-    else if (value < 0) value = 0;
-
-    this.accessory.context.targetPosition = value ?? this.accessory.context.targetPosition as number;
-    if (this.platform.debug)
-      this.platform.log.debug(`Remote ${this.accessory.context.deviceID}: Set ${this.accessory.context.name}, targetPosition=${value}.`);
+    // Stop
+    if (this.current.value === 100 || this.current.value === 0
+      || ((this.current.value <= this.target.value && this.state.value === this.Characteristic.PositionState.DECREASING)
+      || (this.current.value >= this.target.value && this.state.value === this.Characteristic.PositionState.INCREASING))
+    ) this.state.setValue(this.Characteristic.PositionState.STOPPED);
   }
 }

@@ -86,9 +86,11 @@ export class RFXComPlatform implements IndependentPlatformPlugin {
     // Check if accessory already exist in cache
     const id = `${remote.deviceID}/${type}`;
     let accessory = this.accessories[id];
+
+    // If exist remove it
     if (accessory) this.removeAccessory(accessory);
 
-    // Create platform accessory if doesn't exist
+    // Create platform accessory
     const name = `${remote.name} ${type}`;
     const uuid = this.api.hap.uuid.generate(id);
     accessory = new this.api.platformAccessory(name, uuid);
