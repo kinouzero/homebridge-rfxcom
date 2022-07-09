@@ -113,7 +113,7 @@ export class ShutterAccessory {
 
     // Init shutter
     this.state.updateValue(this.Characteristic.PositionState.STOPPED);
-    this.current.updateValue(current ?? DEFAULT_OVERTURE);
+    this.current.setValue(current ?? DEFAULT_OVERTURE);
     this.target.updateValue(this.current.value);
   }
 
