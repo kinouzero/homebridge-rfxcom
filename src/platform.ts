@@ -1,5 +1,6 @@
 // Homebridge
-import { API, Logger, PlatformAccessory, PlatformConfig, Service, Characteristic, IndependentPlatformPlugin } from 'homebridge';
+import { API, Logger, PlatformAccessory, PlatformConfig, Service, Characteristic, IndependentPlatformPlugin, Nullable, CharacteristicValue }
+  from 'homebridge';
 // Settings
 import { PLATFORM_NAME, PLUGIN_NAME, TTY, TYPE, WITH_SWITCHES } from './settings';
 // Rfxcom API
@@ -12,28 +13,60 @@ import { SwitchAccessory } from './switch';
  * RFXCom platform to interact with Somfy/Simu RTS shutters
  */
 export class RFXComPlatform implements IndependentPlatformPlugin {
+  /**
+   * API Service
+   */
   public readonly Service: typeof Service = this.api.hap.Service;
+
+  /**
+   * API Characteristic
+   */
   public readonly Characteristic: typeof Characteristic = this.api.hap.Characteristic;
 
-  // This is used to track restored cached accessories
+  /**
+   * This is used to track restored cached accessories
+   */
   public accessories: PlatformAccessory[] = [];
-  // Store Rfy remotes
+
+  /**
+   * Store RFY remotes
+   */
   public remotes: any[] = [];
-  // Store switches Up|Down plugin
-  public switches: any[] = [];
-  // Store shutter plugin
+
+  /**
+   * Store shutters
+   */
   public shutter: any[] = [];
 
-  // TTY
-  public tty: string;
-  // Debug mode
-  public debug: boolean;
-  // Rfxcom API
-  public rfxtrx: any;
-  // Rfxcom Rfy API
-  public rfy: any;
-  // Create switch accessories
-  public withSwitches: any;
+  /**
+   * Store switches Up|Down
+   */
+  public switches: any[] = [];
+
+  /**
+   * TTY Device path
+   */
+  private tty: string = this.config.tty ?? TTY;
+
+  /**
+   * Debug mode
+   */
+  public debug: boolean = this.config.debug ?? false;
+
+  /**
+   * Rfxcom API
+   */
+  private rfxtrx: any;
+
+  /**
+   * Rfxcom RFY API
+   */
+  public readonly rfy: any;
+
+  /**
+   * Create switch accessories
+   */
+  public readonly withSwitches: boolean = this.config.withSwitches || WITH_SWITCHES;
 
   /**
    * Constructor
@@ -46,10 +79,6 @@ export class RFXComPlatform implements IndependentPlatformPlugin {
     public readonly config: PlatformConfig = { platform: PLUGIN_NAME },
     public readonly api: API,
   ) {
-    this.tty = this.config.tty || TTY;
-    this.debug = this.config.debug || false;
-    this.withSwitches = this.config.withSwitches || WITH_SWITCHES;
-
     const remotes = this.config.rfyRemotes || this.config.RfyRemotes;
     this.remotes = Array.isArray(remotes) ? remotes : [];
 
@@ -59,10 +88,7 @@ export class RFXComPlatform implements IndependentPlatformPlugin {
     this.rfxtrx.on('disconnect', () => this.log.info('ERROR: RFXtrx disconnect'));
     this.rfxtrx.on('connectfailed', () => this.log.info('ERROR: RFXtrx connect fail'));
 
-    if (api) {
-      this.api = api;
-      this.api.on('didFinishLaunching', () => this.discoverRemotes());
-    }
+    if (this.api) this.api.on('didFinishLaunching', () => this.discoverRemotes());
   }
 
   /**
@@ -86,24 +112,34 @@ export class RFXComPlatform implements IndependentPlatformPlugin {
     // Check if accessory already exist in cache
     const id = `${remote.deviceID}/${type}`;
     let accessory = this.accessories[id];
+    let current: Nullable<CharacteristicValue> = null;
 
-    // If exist remove it
-    if (accessory) this.removeAccessory(accessory);
+    if (accessory) {
+      // Try to retrieve last current position before restart
+      if(accessory.context.current) current = accessory.context.current;
+      if(current) this.log.debug(`[Remote ${remote.deviceID}] Retrieving previous position=${current}.`);
+
+      // If exist remove it
+      this.removeAccessory(accessory);
+    }
 
     // Create platform accessory
     const name = `${remote.name} ${type}`;
     const uuid = this.api.hap.uuid.generate(id);
     accessory = new this.api.platformAccessory(name, uuid);
-    if (this.debug) this.log.debug(`Remote ${remote.deviceID}: Adding ${name} (${id}) uuid=${uuid}...`);
+    this.log.debug(`[Remote ${remote.deviceID}] Adding ${name} (${id}) uuid=${uuid}...`);
 
     // Create new accessory
     switch (type) {
       case TYPE.Shutter:
-        this.shutter[remote.deviceID] = new ShutterAccessory(this, accessory, remote);
+        this.shutter[remote.deviceID] = new ShutterAccessory(this, accessory, remote, current);
         break;
       case TYPE.Up:
       case TYPE.Down:
-        if(!this.withSwitches) return;
+        if (!this.withSwitches) {
+          this.log.debug(`[Remote ${remote.deviceID}] Skipped ${name}`);
+          return;
+        }
         this.switches[remote.deviceID][type] = new SwitchAccessory(this, accessory, remote, type);
         break;
     }
@@ -112,7 +148,7 @@ export class RFXComPlatform implements IndependentPlatformPlugin {
     this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
     this.accessories[id] = accessory;
 
-    this.log.info(`Remote ${remote.deviceID}: Added ${type}.`);
+    this.log.info(`[Remote ${remote.deviceID}] Added ${name}.`);
   }
 
   /**
@@ -142,7 +178,7 @@ export class RFXComPlatform implements IndependentPlatformPlugin {
       // Compare local config against RFXCom-registered remotes
       this.listRemotes()
         .then(rfyRemotes => {
-          if (this.debug) this.log.debug(`Received ${rfyRemotes.length} remote(s) from device`);
+          this.log.debug(`Received ${rfyRemotes.length} remote(s) from device`);
 
           this.remotes.forEach(remote => {
             // Handle different capitalizations of deviceID
@@ -151,7 +187,7 @@ export class RFXComPlatform implements IndependentPlatformPlugin {
             if (rfyRemotes.find(r => remote.deviceID === r.deviceId)) {
               // Add Shutter
               this.switches[remote.deviceID] = [];
-              for(const t in TYPE) this.addAccessory(remote, t);
+              for (const t in TYPE) this.addAccessory(remote, t);
             } else {
               // No remote found on device
               const msg = rfyRemotes.map(r => `${r.deviceId}`).join(', ');
@@ -161,7 +197,7 @@ export class RFXComPlatform implements IndependentPlatformPlugin {
         })
         .catch(error => {
           this.log.info(`UNHANDLED ERROR : ${error}`);
-          if (this.debug) this.log.debug(error.stack);
+          this.log.debug(error.stack);
         });
     else {
       this.log.info('WARNING: No RFY remotes configured');
@@ -177,7 +213,7 @@ export class RFXComPlatform implements IndependentPlatformPlugin {
       this.rfxtrx.once('rfyremoteslist', (remotes: any[]) => resolve(remotes));
 
       this.rfxtrx.initialise(() => {
-        if (this.debug) this.log.debug('RFXtrx initialized, listing remotes...');
+        this.log.debug('RFXtrx initialized, listing remotes...');
         this.rfy.listRemotes();
       });
     });

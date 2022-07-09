@@ -1,5 +1,5 @@
 // Homebridge
-import { CharacteristicEventTypes, CharacteristicSetCallback, CharacteristicValue, PlatformAccessory, Service } from 'homebridge';
+import { CharacteristicEventTypes, CharacteristicSetCallback, CharacteristicValue, PlatformAccessory } from 'homebridge';
 // Settings
 import { PLUGIN_NAME, TYPE } from './settings';
 // Platform
@@ -9,11 +9,6 @@ import { RFXComPlatform } from './platform';
  * Switch Accessory
  */
 export class SwitchAccessory {
-  /**
-   * Service
-   */
-  public readonly service: Service;
-
   /**
    * Characteristics
    */
@@ -26,7 +21,6 @@ export class SwitchAccessory {
   public readonly context: any = {
     id: `${this.remote.deviceID}/${this.direction}`,
     name: `${this.remote.name} ${this.direction}`,
-    deviceID: this.remote.deviceID,
   };
 
   /**
@@ -50,14 +44,14 @@ export class SwitchAccessory {
         `${this.remote.deviceID}/${direction}`);
 
     // Set service
-    this.service = this.accessory.getService(this.platform.Service.Switch) || this.accessory.addService(this.platform.Service.Switch);
+    const service = this.accessory.getService(this.platform.Service.Switch) || this.accessory.addService(this.platform.Service.Switch);
 
     // Set context
     this.accessory.context.id = this.context.id;
     this.accessory.context.name = this.context.name;
 
     // Get characteristic
-    this.state = this.service.getCharacteristic(this.Characteristic.On);
+    this.state = service.getCharacteristic(this.Characteristic.On);
 
     // Set event listeners
     this.state.on(CharacteristicEventTypes.SET, (value: CharacteristicValue, callback: CharacteristicSetCallback) => {
