@@ -58,15 +58,9 @@ export class SwitchAccessory {
       // Shutter
       const shutter = this.platform.shutter[this.remote.deviceID];
 
-      // If button is stopped
-      if (!value) {
-        shutter.state.setValue(this.Characteristic.PositionState.STOPPED);
-
-        return callback();
-      }
-
       // Set shutter
-      shutter.target.setValue(direction === TYPE.Up ? 100 : 0);
+      if (!value) shutter.stop();
+      else shutter.target.setValue(direction === TYPE.Up ? 100 : 0);
 
       callback();
     });

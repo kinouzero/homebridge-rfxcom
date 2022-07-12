@@ -1,15 +1,15 @@
 {
   "displayName": "RFXCom 3",
   "name": "homebridge-plugin-rfxcom-3",
-  "version": "1.5.6",
-  "description": "Homebridge plugin for RFXtrx433(E) transceivers.",
+  "version": "1.5.7",
+  "description": "Homebridge plugin for RFXtrx433(E, XL) transceivers.",
   "license": "MIT License",
   "repository": {
     "type": "git",
     "url": "git://github.com/kinouzero/homebridge-rfxcom.git"
   },
   "bugs": {
-    "url": "https://github.com/kinouzero/homebridge-rfxcom.git/issues"
+    "url": "https://github.com/kinouzero/homebridge-rfxcom/issues"
   },
   "engines": {
     "node": ">=14.18.1",

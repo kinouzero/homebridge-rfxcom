@@ -61,40 +61,9 @@ export class ShutterAccessory {
     this.target = service.getCharacteristic(this.Characteristic.TargetPosition);
 
     // Set event listeners
-    this.state.on(CharacteristicEventTypes.SET, (value: CharacteristicValue, callback: CharacteristicSetCallback) => {
-      this.state.updateValue(value);
-      this.platform.log.debug(`[Remote ${this.context.deviceID}] state=${this.state.value}.`);
-
-      // Shutter actions
-      switch(this.state.value) {
-        // Stop shutter
-        case this.Characteristic.PositionState.STOPPED:
-          this.stop();
-          if (this.current.value < 100 && this.current.value > 0) this.platform.rfy.stop(this.context.deviceID);
-          this.current.setValue(Math.round(this.current.value));
-          this.target.setValue(this.current.value);
-          return callback();
-        // Move shutter up
-        case this.Characteristic.PositionState.INCREASING:
-          this.platform.rfy.up(this.context.deviceID);
-          break;
-        // Move shutter down
-        case this.Characteristic.PositionState.DECREASING:
-          this.platform.rfy.down(this.context.deviceID);
-          break;
-      }
-
-      // Start process
-      this.start();
-
-      callback();
-    });
     this.current.on(CharacteristicEventTypes.SET, (value: CharacteristicValue, callback: CharacteristicSetCallback) => {
-      this.current.updateValue(value);
-      this.platform.log.debug(`[Remote ${this.context.deviceID}] current=${this.current.value}.`);
-
       // For caching purpose
-      this.accessory.context.current = this.current.value;
+      this.accessory.context.current = value;
 
       callback();
     });
@@ -102,11 +71,8 @@ export class ShutterAccessory {
       this.target.updateValue(value);
       this.platform.log.debug(`[Remote ${this.context.deviceID}] target=${this.target.value}.`);
 
-      if(value === this.current.value) return callback();
-
-      // Start shutter
-      this.state.setValue(this.target.value > this.current.value ?
-        this.Characteristic.PositionState.INCREASING : this.Characteristic.PositionState.DECREASING);
+      // Start process
+      this.start();
 
       callback();
     });
@@ -121,25 +87,43 @@ export class ShutterAccessory {
    * Start shutter
    */
   start() {
-    if ((this.state.value === this.Characteristic.PositionState.INCREASING && this.current.value === 100) ||
-      (this.state.value === this.Characteristic.PositionState.DECREASING && this.current.value === 0)) {
-      this.state.setValue(this.Characteristic.PositionState.STOPPED);
+    // Set shutter
+    switch(true) {
+      case (this.target.value === this.current.value):
+        this.state.setValue(this.Characteristic.PositionState.STOPPED);
+        break;
+      case (this.target.value > this.current.value):
+        this.state.setValue(this.Characteristic.PositionState.INCREASING);
+        break;
+      case (this.target.value < this.current.value):
+        this.state.setValue(this.Characteristic.PositionState.DECREASING);
+        break;
+    }
+
+    // Security
+    if (this.state.value === this.Characteristic.PositionState.STOPPED ||
+      (this.state.value === this.Characteristic.PositionState.INCREASING && this.current.value === 100) ||
+      (this.state.value === this.Characteristic.PositionState.DECREASING && this.current.value === 0)
+    ) {
+      this.stop();
       return;
     }
 
-    // Stop process if already running
-    if (this.context.process) clearInterval(this.context.process);
-
-    // Set switches to correct state
+    // Set switches
     if(this.platform.withSwitches) {
       const switches = this.platform.switches[this.context.deviceID];
       switches[TYPE.Up].state.updateValue(this.state.value === this.Characteristic.PositionState.INCREASING);
       switches[TYPE.Down].state.updateValue(this.state.value === this.Characteristic.PositionState.DECREASING);
     }
 
-    // Launch processing
-    this.context.process = setInterval(() => this.processing(), 250);
+    // RFY commands
+    if(this.state.value === this.Characteristic.PositionState.INCREASING) this.platform.rfy.up(this.context.deviceID);
+    if(this.state.value === this.Characteristic.PositionState.DECREASING) this.platform.rfy.down(this.context.deviceID);
 
+    // Start process
+    this.context.process = setInterval(() => this.processing(), 500);
+
+    // Log
     this.platform.log.info(`[Remote ${this.context.deviceID}] Starting...`);
     this.platform.log.debug(`[Remote ${this.context.deviceID}] state=${this.state.value}.`);
     this.platform.log.debug(`[Remote ${this.context.deviceID}] current=${this.current.value}.`);
@@ -151,15 +135,23 @@ export class ShutterAccessory {
    */
   stop() {
     // Stop process
-    clearInterval(this.context.process);
+    if (this.context.process) clearInterval(this.context.process);
 
-    // Reset switches if exists
+    // Set shutter
+    this.target.setValue(this.current.value);
+    this.state.setValue(this.Characteristic.PositionState.STOPPED);
+
+    // RFY stop command
+    if (this.current.value < 100 && this.current.value > 0) this.platform.rfy.stop(this.context.deviceID);
+
+    // Reset switches
     if(this.platform.withSwitches) {
       const switches = this.platform.switches[this.context.deviceID];
       switches[TYPE.Up].state.updateValue(false);
       switches[TYPE.Down].state.updateValue(false);
     }
 
+    // Log
     this.platform.log.info(`[Remote ${this.context.deviceID}] Stopping.`);
     this.platform.log.debug(`[Remote ${this.context.deviceID}] state=${this.state.value}.`);
     this.platform.log.debug(`[Remote ${this.context.deviceID}] current=${this.current.value}.`);
@@ -170,22 +162,32 @@ export class ShutterAccessory {
    * Processing shutter
    */
   processing() {
-    // Calcul current position
     let value:any = this.current.value;
     if(!value) return;
-    if (this.state.value === this.Characteristic.PositionState.INCREASING) value += (100 / this.context.duration) / 4;
-    else if (this.state.value === this.Characteristic.PositionState.DECREASING) value -= (100 / this.context.duration) / 4;
+
+    // Calcul current position
+    switch(this.state.value) {
+      case this.Characteristic.PositionState.INCREASING:
+        value += (100 / this.context.duration) / 2;
+        break;
+      case this.Characteristic.PositionState.DECREASING:
+        value -= (100 / this.context.duration) / 2;
+        break;
+    }
     if(value > 100) value = 100;
     else if(value < 0) value = 0;
 
-    // Set current position
+    // Set current positon
     this.current.setValue(value);
     this.platform.log.debug(`[Remote ${this.context.deviceID}] current=${this.current.value}.`);
 
     // Stop
-    if (this.current.value === 100 || this.current.value === 0
-      || ((this.current.value <= this.target.value && this.state.value === this.Characteristic.PositionState.DECREASING)
-      || (this.current.value >= this.target.value && this.state.value === this.Characteristic.PositionState.INCREASING))
-    ) this.state.setValue(this.Characteristic.PositionState.STOPPED);
+    if (this.current.value === 100 || this.current.value === 0 ||
+      (this.current.value <= this.target.value && this.state.value === this.Characteristic.PositionState.DECREASING) ||
+      (this.current.value >= this.target.value && this.state.value === this.Characteristic.PositionState.INCREASING)
+    ) {
+      this.current.setValue(Math.round(this.current.value));
+      this.stop();
+    }
   }
 }
