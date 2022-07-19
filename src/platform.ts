@@ -6,8 +6,8 @@ import { PLATFORM_NAME, PLUGIN_NAME, TTY, TYPE, WITH_SWITCHES } from './settings
 // Rfxcom API
 import rfxcom from 'rfxcom';
 // Accessories
-import { ShutterAccessory } from './shutter';
-import { SwitchAccessory } from './switch';
+import { Shutter } from './shutter';
+import { Switch } from './switch';
 
 /**
  * RFXCom platform to interact with Somfy/Simu RTS shutters
@@ -132,7 +132,7 @@ export class RFXComPlatform implements IndependentPlatformPlugin {
     // Create new accessory
     switch (type) {
       case TYPE.Shutter:
-        this.shutter[remote.deviceID] = new ShutterAccessory(this, accessory, remote, current);
+        this.shutter[remote.deviceID] = new Shutter(this, accessory, remote, current);
         break;
       case TYPE.Up:
       case TYPE.Down:
@@ -140,7 +140,7 @@ export class RFXComPlatform implements IndependentPlatformPlugin {
           this.log.debug(`[Remote ${remote.deviceID}] Skipped ${name}`);
           return;
         }
-        this.switches[remote.deviceID][type] = new SwitchAccessory(this, accessory, remote, type);
+        this.switches[remote.deviceID][type] = new Switch(this, accessory, remote, type);
         break;
     }
 

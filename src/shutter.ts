@@ -8,7 +8,7 @@ import { RFXComPlatform } from './platform';
 /**
  * Shutter accessory
  */
-export class ShutterAccessory {
+export class Shutter {
   /**
    * Characteristics
    */
@@ -25,7 +25,6 @@ export class ShutterAccessory {
     name: `${this.remote.name} ${TYPE.Shutter}`,
     deviceID: this.remote.deviceID,
     duration: this.remote.openCloseSeconds ?? OPEN_CLOSE_SECONDS,
-    timeout: null,
     process: null,
   };
 
@@ -64,16 +63,11 @@ export class ShutterAccessory {
     this.current.on(CharacteristicEventTypes.SET, (value: CharacteristicValue, callback: CharacteristicSetCallback) => {
       // For caching purpose
       this.accessory.context.current = value;
-
       callback();
     });
     this.target.on(CharacteristicEventTypes.SET, (value: CharacteristicValue, callback: CharacteristicSetCallback) => {
-      this.target.updateValue(value);
-      this.platform.log.debug(`[Remote ${this.context.deviceID}] target=${this.target.value}.`);
-
       // Start process
-      this.start();
-
+      this.start(value);
       callback();
     });
 
@@ -86,16 +80,16 @@ export class ShutterAccessory {
   /**
    * Start shutter
    */
-  start() {
+  async start(target: CharacteristicValue) {
     // Set shutter
     switch(true) {
-      case (this.target.value === this.current.value):
+      case (target === this.current.value):
         this.state.setValue(this.Characteristic.PositionState.STOPPED);
         break;
-      case (this.target.value > this.current.value):
+      case (target > this.current.value):
         this.state.setValue(this.Characteristic.PositionState.INCREASING);
         break;
-      case (this.target.value < this.current.value):
+      case (target < this.current.value):
         this.state.setValue(this.Characteristic.PositionState.DECREASING);
         break;
     }
@@ -121,28 +115,27 @@ export class ShutterAccessory {
     if(this.state.value === this.Characteristic.PositionState.DECREASING) this.platform.rfy.down(this.context.deviceID);
 
     // Start process
-    this.context.process = setInterval(() => this.processing(), 500);
+    this.context.process = setInterval(() => this.processing(target), 500);
 
     // Log
     this.platform.log.info(`[Remote ${this.context.deviceID}] Starting...`);
     this.platform.log.debug(`[Remote ${this.context.deviceID}] state=${this.state.value}.`);
     this.platform.log.debug(`[Remote ${this.context.deviceID}] current=${this.current.value}.`);
-    this.platform.log.debug(`[Remote ${this.context.deviceID}] target=${this.target.value}.`);
+    this.platform.log.debug(`[Remote ${this.context.deviceID}] target=${target}.`);
   }
 
   /**
    * Stop shutter
    */
-  stop() {
+  async stop() {
     // Stop process
     if (this.context.process) clearInterval(this.context.process);
 
-    // Set shutter
-    this.target.setValue(this.current.value);
-    this.state.setValue(this.Characteristic.PositionState.STOPPED);
-
     // RFY stop command
     if (this.current.value < 100 && this.current.value > 0) this.platform.rfy.stop(this.context.deviceID);
+
+    // Set shutter
+    this.state.setValue(this.Characteristic.PositionState.STOPPED);
 
     // Reset switches
     if(this.platform.withSwitches) {
@@ -161,7 +154,7 @@ export class ShutterAccessory {
   /**
    * Processing shutter
    */
-  processing() {
+  async processing(target: CharacteristicValue) {
     let value:any = this.current.value;
     if(!value) return;
 
@@ -183,8 +176,8 @@ export class ShutterAccessory {
 
     // Stop
     if (this.current.value === 100 || this.current.value === 0 ||
-      (this.current.value <= this.target.value && this.state.value === this.Characteristic.PositionState.DECREASING) ||
-      (this.current.value >= this.target.value && this.state.value === this.Characteristic.PositionState.INCREASING)
+      (this.current.value <= target && this.state.value === this.Characteristic.PositionState.DECREASING) ||
+      (this.current.value >= target && this.state.value === this.Characteristic.PositionState.INCREASING)
     ) {
       this.current.setValue(Math.round(this.current.value));
       this.stop();

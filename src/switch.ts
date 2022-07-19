@@ -8,7 +8,7 @@ import { RFXComPlatform } from './platform';
 /**
  * Switch Accessory
  */
-export class SwitchAccessory {
+export class Switch {
   /**
    * Characteristics
    */
