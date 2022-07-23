@@ -40,8 +40,7 @@ export class Switch {
     this.accessory.getService(this.platform.Service.AccessoryInformation)!
       .setCharacteristic(this.Characteristic.Manufacturer, PLUGIN_NAME)
       .setCharacteristic(this.Characteristic.Model, 'RFY')
-      .setCharacteristic(this.Characteristic.SerialNumber,
-        `${this.remote.deviceID}/${direction}`);
+      .setCharacteristic(this.Characteristic.SerialNumber, `${this.remote.deviceID}/${direction}`);
 
     // Set service
     const service = this.accessory.getService(this.platform.Service.Switch) || this.accessory.addService(this.platform.Service.Switch);
@@ -55,16 +54,15 @@ export class Switch {
 
     // Set event listeners
     this.state.on(CharacteristicEventTypes.SET, (value: CharacteristicValue, callback: CharacteristicSetCallback) => {
-      // Shutter
+      // Set target position
       const shutter = this.platform.shutter[this.remote.deviceID];
-
-      // Set shutter
       if (!value) shutter.stop();
       else shutter.target.setValue(direction === TYPE.Up ? 100 : 0);
 
       callback();
     });
 
+    // Init switch
     this.state.updateValue(false);
   }
 }
