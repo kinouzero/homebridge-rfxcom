@@ -116,8 +116,8 @@ export class RFXComPlatform implements IndependentPlatformPlugin {
 
     if (accessory) {
       // Try to retrieve last current position before restart
-      if(accessory.context.current) current = accessory.context.current;
-      if(current) this.log.debug(`[Remote ${remote.deviceID}] Retrieving previous position=${current}.`);
+      if(Number.isFinite(accessory.context.current)) current = accessory.context.current;
+      if(Number.isFinite(current)) this.log.debug(`[Remote ${remote.deviceID}] Retrieving previous position=${current}.`);
 
       // If exist remove it
       this.removeAccessory(accessory);
