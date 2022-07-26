@@ -1,7 +1,7 @@
 {
   "displayName": "RFXCom 3",
   "name": "homebridge-plugin-rfxcom-3",
-  "version": "1.5.10",
+  "version": "1.5.11",
   "description": "Homebridge plugin for RFXtrx433(E, XL) transceivers.",
   "license": "MIT License",
   "repository": {

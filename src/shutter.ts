@@ -67,6 +67,9 @@ export class Shutter {
       callback();
     });
     this.target.on(CharacteristicEventTypes.SET, (value: CharacteristicValue, callback: CharacteristicSetCallback) => {
+      // Clear interval
+      if (this.context.interval) clearInterval(this.context.interval);
+
       // Set shutter state
       if (value > this.current.value) this.state.setValue(this.Characteristic.PositionState.INCREASING);
       else if (value < this.current.value) this.state.setValue(this.Characteristic.PositionState.DECREASING);
