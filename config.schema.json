@@ -10,6 +10,48 @@
         "type": "string",
         "required": true,
         "default": "RFXCom 3"
+      },
+      "tty": {
+        "title": "TTY",
+        "type": "string",
+        "placeholder": "/dev/ttyUSB0"
+      },
+      "debug": {
+        "title": "Debug mode",
+        "type": "boolean"
+      },
+      "rfyRemotes": {
+        "title": "Remotes",
+        "type": "array",
+        "items": {
+          "title": "Remote",
+          "type": "object",
+          "properties": {
+            "name": {
+              "title": "Name",
+              "type": "string",
+              "required": true,
+              "default": "Shutter"
+            },
+            "deviceID": {
+              "title": "Device ID",
+              "description": "The remote address and followed by unit code that can be found in the RFXMngr setup program",
+              "type": "string",
+              "required": true,
+              "pattern": "^(0x0[0-9A-Fa-f]{5}\/[0-9]{1})$",
+              "default" : "0x0?????/?"
+            },
+            "openCloseSeconds": {
+              "title": "Open/Close seconds",
+              "description": "Number of seconds it takes for the blinds/awning/etc to fully open or close, if you want the good percentage displayed, fill it exactly",
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 60,
+              "required": true,
+              "default": 25
+            }
+          }
+        }
       }
     }
   }
