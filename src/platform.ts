@@ -1,221 +1,236 @@
-// Homebridge
-import { API, Logger, PlatformAccessory, PlatformConfig, Service, Characteristic, IndependentPlatformPlugin, Nullable, CharacteristicValue }
-  from 'homebridge';
-// Settings
-import { PLATFORM_NAME, PLUGIN_NAME, TTY, TYPE, WITH_SWITCHES } from './settings';
-// Rfxcom API
-import rfxcom from 'rfxcom';
-// Accessories
+import { API, Logger, PlatformAccessory, PlatformConfig, Service, Characteristic, DynamicPlatformPlugin } from 'homebridge';
+import rfxcom = require('rfxcom');
+import {
+  PLATFORM_NAME, PLUGIN_NAME, TTY, DEFAULT_TRAVEL_SECONDS, DISCOVERY_TIMEOUT_MS, RECONNECT_INITIAL_MS, RECONNECT_MAX_MS,
+} from './settings';
 import { Shutter } from './shutter';
-import { Switch } from './switch';
+import { RadioCommands } from './radioCommands';
+import { asError, Remote } from './types';
 
-/**
- * RFXCom platform to interact with Somfy/Simu RTS shutters
- */
-export class RFXComPlatform implements IndependentPlatformPlugin {
-  /**
-   * API Service
-   */
+const REMOTE_OPTIONS = new Set(['deviceID', 'name', 'upSeconds', 'downSeconds', 'reverse']);
+const DEVICE_ID_PATTERN = /^0x(?!0+\/)(?:0[0-9a-fA-F]{5}|[0-9a-fA-F]{1,5})\/[0-4]$/;
+
+export class RFXComPlatform implements DynamicPlatformPlugin {
   public readonly Service: typeof Service = this.api.hap.Service;
-
-  /**
-   * API Characteristic
-   */
   public readonly Characteristic: typeof Characteristic = this.api.hap.Characteristic;
+  public readonly accessories: Record<string, PlatformAccessory> = Object.create(null);
+  public readonly shutter: Record<string, Shutter> = Object.create(null);
+  public readonly remotes: Remote[] = [];
+  public readonly debug: boolean = this.config.debug ?? false;
+  public commands!: RadioCommands;
+  private readonly remotesByUUID = new Map<string, Remote>();
+  private rfxtrx!: rfxcom.RfxCom;
+  private rfy!: rfxcom.Rfy;
+  private discovery?: Promise<rfxcom.RfyRemote[]>;
+  private cancelDiscovery?: (error: Error) => void;
+  private reconnectTimer?: ReturnType<typeof setTimeout>;
+  private retryDelay = RECONNECT_INITIAL_MS;
+  private initialized = false;
+  private failed = false;
+  private closed = false;
 
-  /**
-   * This is used to track restored cached accessories
-   */
-  public accessories: PlatformAccessory[] = [];
+  public get online(): boolean {
+    return this.initialized && !this.failed && !this.closed;
+  }
 
-  /**
-   * Store RFY remotes
-   */
-  public remotes: any[] = [];
-
-  /**
-   * Store shutters
-   */
-  public shutter: any[] = [];
-
-  /**
-   * Store switches Up|Down
-   */
-  public switches: any[] = [];
-
-  /**
-   * TTY Device path
-   */
-  private tty: string = this.config.tty ?? TTY;
-
-  /**
-   * Debug mode
-   */
-  public debug: boolean = this.config.debug ?? false;
-
-  /**
-   * Rfxcom API
-   */
-  private rfxtrx: any;
-
-  /**
-   * Rfxcom RFY API
-   */
-  public readonly rfy: any;
-
-  /**
-   * Create switch accessories
-   */
-  public readonly withSwitches: boolean = this.config.withSwitches || WITH_SWITCHES;
-
-  /**
-   * Constructor
-   * @param {Logger} log
-   * @param {PlatformConfig} config
-   * @param {API} api
-   */
   constructor(
     public readonly log: Logger,
-    public readonly config: PlatformConfig = { platform: PLUGIN_NAME },
+    public readonly config: PlatformConfig = { platform: PLATFORM_NAME },
     public readonly api: API,
   ) {
-    const remotes = this.config.rfyRemotes || this.config.RfyRemotes;
-    this.remotes = Array.isArray(remotes) ? remotes : [];
-
-    this.rfxtrx = new rfxcom.RfxCom(this.tty, { debug: this.debug });
-    this.rfy = new rfxcom.Rfy(this.rfxtrx, rfxcom.rfy.RFY);
-
-    this.rfxtrx.on('disconnect', () => this.log.info('ERROR: RFXtrx disconnect'));
-    this.rfxtrx.on('connectfailed', () => this.log.info('ERROR: RFXtrx connect fail'));
-
-    if (this.api) this.api.on('didFinishLaunching', () => this.discoverRemotes());
-  }
-
-  /**
-  * Load accessory from cache
-  * @param {PlatformAccessory} accessory
-  */
-  configureAccessory(accessory: PlatformAccessory) {
-    const id = accessory.context.id;
-
-    this.log.info(`Loaded from cache: ${accessory.context.name} (${id})`);
-
-    this.accessories[id] = accessory;
-  }
-
-  /**
-   * Add accessory to the platform
-   * @param {any} remote
-   * @param {string} type Shutter|Up|Down
-   */
-  addAccessory(remote: any, type: string) {
-    // Check if accessory already exist in cache
-    const id = `${remote.deviceID}/${type}`;
-    let accessory = this.accessories[id];
-    let current: Nullable<CharacteristicValue> = null;
-
-    if (accessory) {
-      // Try to retrieve last current position before restart
-      if(Number.isFinite(accessory.context.current)) current = accessory.context.current;
-      if(Number.isFinite(current)) this.log.debug(`[Remote ${remote.deviceID}] Retrieving previous position=${current}.`);
-
-      // If exist remove it
-      this.removeAccessory(accessory);
+    const configured = this.config.rfyRemotes;
+    const seen = new Set<string>();
+    for (const entry of Array.isArray(configured) ? configured : []) {
+      const { deviceID, name, upSeconds = DEFAULT_TRAVEL_SECONDS, downSeconds = DEFAULT_TRAVEL_SECONDS, reverse = false } = entry ?? {};
+      if (typeof deviceID !== 'string' || !DEVICE_ID_PATTERN.test(deviceID) ||
+          typeof name !== 'string' || !name.trim() ||
+          !Number.isFinite(upSeconds) || upSeconds <= 0 || !Number.isFinite(downSeconds) || downSeconds <= 0 ||
+          typeof reverse !== 'boolean' || Object.keys(entry).some(key => !REMOTE_OPTIONS.has(key))) {
+        this.log.warn('Ignoring invalid RFY remote: use deviceID, name, positive upSeconds/downSeconds and boolean reverse');
+        continue;
+      }
+      if (seen.has(deviceID)) {
+        this.log.warn('Ignoring duplicate RFY remote ' + deviceID);
+        continue;
+      }
+      seen.add(deviceID);
+      const remote = Object.freeze({ deviceID, name, upSeconds, downSeconds, reverse });
+      this.remotes.push(remote);
+      this.remotesByUUID.set(this.api.hap.uuid.generate(deviceID), remote);
     }
-
-    // Create platform accessory
-    const name = `${remote.name} ${type}`;
-    const uuid = this.api.hap.uuid.generate(id);
-    accessory = new this.api.platformAccessory(name, uuid);
-    this.log.debug(`[Remote ${remote.deviceID}] Adding ${name} (${id}) uuid=${uuid}...`);
-
-    // Create new accessory
-    switch (type) {
-      case TYPE.Shutter:
-        this.shutter[remote.deviceID] = new Shutter(this, accessory, remote, current);
-        break;
-      case TYPE.Up:
-      case TYPE.Down:
-        if (!this.withSwitches) {
-          this.log.debug(`[Remote ${remote.deviceID}] Skipped ${name}`);
-          return;
-        }
-        this.switches[remote.deviceID][type] = new Switch(this, accessory, remote, type);
-        break;
-    }
-
-    // Register platform accessory
-    this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
-    this.accessories[id] = accessory;
-
-    this.log.info(`[Remote ${remote.deviceID}] Added ${name}.`);
-  }
-
-  /**
-   * Remove an accessory
-   * @param {PlatformAccessory} accessory
-   */
-  removeAccessory(accessory: PlatformAccessory) {
-    this.log.info(`Removed from Homebridge: ${accessory.context.name}.`);
-
-    this.api.unregisterPlatformAccessories(PLATFORM_NAME, PLUGIN_NAME, [accessory]);
-    delete this.accessories[accessory.context.id];
-  }
-
-  /**
-   * Remove all accesories
-   */
-  removeAccessories() {
-    this.accessories.forEach((id: any) => this.removeAccessory(this.accessories[id]));
-  }
-
-  /**
-   * Discover devices
-   */
-  discoverRemotes() {
-    // Add or update accessory in HomeKit
-    if (this.remotes.length)
-      // Compare local config against RFXCom-registered remotes
-      this.listRemotes()
-        .then(rfyRemotes => {
-          this.log.debug(`Received ${rfyRemotes.length} remote(s) from device`);
-
-          this.remotes.forEach(remote => {
-            // Handle different capitalizations of deviceID
-            remote.deviceID = remote.deviceID ?? remote.deviceId;
-
-            if (rfyRemotes.find(r => remote.deviceID === r.deviceId)) {
-              // Add Shutter
-              this.switches[remote.deviceID] = [];
-              for (const t in TYPE) this.addAccessory(remote, t);
-            } else {
-              // No remote found on device
-              const msg = rfyRemotes.map(r => `${r.deviceId}`).join(', ');
-              this.log.info(`ERROR: RFY remote ${remote.deviceID} not found. Found: ${msg}`);
-            }
-          });
-        })
-        .catch(error => {
-          this.log.info(`UNHANDLED ERROR : ${error}`);
-          this.log.debug(error.stack);
-        });
-    else {
-      this.log.info('WARNING: No RFY remotes configured');
-      this.removeAccessories();
-    }
-  }
-
-  /**
-   * List remotes from RFXtrx
-   */
-  listRemotes(): Promise<any[]> {
-    return new Promise((resolve) => {
-      this.rfxtrx.once('rfyremoteslist', (remotes: any[]) => resolve(remotes));
-
-      this.rfxtrx.initialise(() => {
-        this.log.debug('RFXtrx initialized, listing remotes...');
-        this.rfy.listRemotes();
-      });
+    this.createConnection();
+    this.api.on('didFinishLaunching', () => {
+      void this.discoverRemotes();
     });
+    this.api.on('shutdown', () => this.shutdown());
+  }
+
+  private createConnection(): void {
+    this.commands?.dispose();
+    this.initialized = false;
+    this.failed = false;
+    const radio = new rfxcom.RfxCom(this.config.tty ?? TTY, { debug: this.debug });
+    this.rfxtrx = radio;
+    this.rfy = new rfxcom.Rfy(radio, rfxcom.rfy.RFY);
+    const fail = (error: unknown) => {
+      if (this.rfxtrx === radio) this.connectionFailed(asError(error));
+    };
+    this.commands = new RadioCommands(radio, this.rfy, fail);
+    radio.on('disconnect', error => fail(error ?? new Error('RFXtrx disconnected')));
+    radio.on('connectfailed', error => fail(error ?? new Error('RFXtrx connection failed')));
+  }
+
+  private connectionFailed(error: Error): void {
+    if (this.closed || this.failed) return;
+    this.failed = true;
+    this.initialized = false;
+    this.log.error(error.message);
+    for (const shutter of Object.values(this.shutter)) shutter.setAvailable(false);
+    this.commands.setConnected(false, error);
+    this.cancelDiscovery?.(error);
+    this.rfxtrx.close();
+    if (this.remotes.length && this.reconnectTimer === undefined) {
+      const delay = this.retryDelay;
+      this.retryDelay = Math.min(delay * 2, RECONNECT_MAX_MS);
+      this.log.info('Retrying RFXtrx connection in ' + delay / 1000 + ' seconds');
+      this.reconnectTimer = setTimeout(() => {
+        this.reconnectTimer = undefined;
+        if (this.closed) return;
+        this.createConnection();
+        void this.discoverRemotes();
+      }, delay);
+    }
+  }
+
+  configureAccessory(accessory: PlatformAccessory): void {
+    this.accessories[accessory.UUID] = accessory;
+    const remote = this.remotesByUUID.get(accessory.UUID);
+    if (remote) {
+      this.shutter[remote.deviceID] = new Shutter(this, accessory, remote);
+      this.shutter[remote.deviceID].setAvailable(false);
+    }
+    this.log.info('Loaded from cache: ' + accessory.displayName);
+  }
+
+  addAccessory(remote: Remote): void {
+    const uuid = this.api.hap.uuid.generate(remote.deviceID);
+    const cached = this.accessories[uuid];
+    const accessory = cached ?? new this.api.platformAccessory(remote.name, uuid);
+    accessory.displayName = remote.name;
+    if (!this.shutter[remote.deviceID])
+      this.shutter[remote.deviceID] = new Shutter(this, accessory, remote);
+    this.shutter[remote.deviceID].setAvailable(this.online);
+    this.accessories[uuid] = accessory;
+    if (cached) this.api.updatePlatformAccessories([accessory]);
+    else this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
+  }
+
+  removeAccessory(accessory: PlatformAccessory): void {
+    const remote = this.remotesByUUID.get(accessory.UUID);
+    if (remote) {
+      this.shutter[remote.deviceID]?.dispose();
+      delete this.shutter[remote.deviceID];
+    }
+    this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
+    delete this.accessories[accessory.UUID];
+  }
+
+  async discoverRemotes(): Promise<void> {
+    if (this.closed) return;
+    for (const [uuid, accessory] of Object.entries(this.accessories))
+      if (!this.remotesByUUID.has(uuid)) this.removeAccessory(accessory);
+    if (!this.remotes.length) {
+      this.log.warn('No valid RFY remotes configured');
+      return;
+    }
+    try {
+      const available = new Set((await this.listRemotes()).map(remote => remote.deviceId));
+      if (this.closed) return;
+      this.retryDelay = RECONNECT_INITIAL_MS;
+      this.commands.setConnected(true);
+      for (const remote of this.remotes) {
+        if (!available.has(remote.deviceID)) {
+          this.shutter[remote.deviceID]?.setAvailable(false);
+          this.log.warn('RFY remote ' + remote.deviceID + ' not found');
+          continue;
+        }
+        this.addAccessory(remote);
+      }
+    } catch (error) {
+      this.connectionFailed(asError(error));
+    }
+  }
+
+  listRemotes(): Promise<rfxcom.RfyRemote[]> {
+    if (this.closed || this.failed) return Promise.reject(new Error('RFXtrx unavailable'));
+    if (this.discovery) return this.discovery;
+    const radio = this.rfxtrx;
+    const rfy = this.rfy;
+    const operation = new Promise<rfxcom.RfyRemote[]>((resolve, reject) => {
+      let settled = false;
+      let sequence: number | undefined;
+      const cleanup = () => {
+        settled = true;
+        clearTimeout(timeout);
+        radio.removeListener('rfyremoteslist', onRemotes);
+        radio.removeListener('connectfailed', onFailure);
+        radio.removeListener('disconnect', onFailure);
+        radio.removeListener('response', onResponse);
+        this.cancelDiscovery = undefined;
+      };
+      const onFailure = (error?: unknown) => {
+        if (settled) return;
+        cleanup();
+        reject(asError(error ?? 'RFXtrx connection failed or disconnected'));
+      };
+      const onResponse = (message: string, responseSequence: number, code: number) => {
+        if (responseSequence === sequence && code >= 2)
+          onFailure(new Error('RFXtrx rejected remote discovery (code ' + code + '): ' + message));
+      };
+      const onRemotes = (remotes: rfxcom.RfyRemote[]) => {
+        if (settled) return;
+        cleanup();
+        resolve(remotes);
+      };
+      const timeout = setTimeout(() => onFailure(new Error('Timed out listing RFY remotes')), DISCOVERY_TIMEOUT_MS);
+      this.cancelDiscovery = onFailure;
+      radio.once('rfyremoteslist', onRemotes);
+      radio.once('connectfailed', onFailure);
+      radio.once('disconnect', onFailure);
+      radio.on('response', onResponse);
+      const list = () => {
+        if (settled || this.closed || radio !== this.rfxtrx) return;
+        this.initialized = true;
+        try {
+          sequence = rfy.listRemotes(error => {
+            if (error) onFailure(error);
+          });
+          if (sequence === -1) onFailure(new Error('RFY remote listing already in progress'));
+        } catch (error) {
+          onFailure(error);
+        }
+      };
+      try {
+        if (this.initialized) list();
+        else radio.initialise(list);
+      } catch (error) {
+        onFailure(error);
+      }
+    });
+    this.discovery = operation.finally(() => {
+      this.discovery = undefined;
+    });
+    return this.discovery;
+  }
+
+  shutdown(): void {
+    if (this.closed) return;
+    this.closed = true;
+    if (this.reconnectTimer !== undefined) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = undefined;
+    for (const shutter of Object.values(this.shutter)) shutter.dispose();
+    this.cancelDiscovery?.(new Error('RFXCom platform is shut down'));
+    this.commands.dispose();
+    this.rfxtrx.close();
   }
 }

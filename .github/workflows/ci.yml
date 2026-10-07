@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22.13.0', '24']
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - name: Validate release tag
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        run: node scripts/check-release.cjs
+      # Install native bindings as well as the simulated transport test dependencies.
+      - run: npm ci
+      - run: npm run lint
+      - if: matrix.node == '22.13.0'
+        run: npm test
+      - if: matrix.node == '24'
+        run: npm run test:coverage
+      - run: npm run check:package
+      - name: Pack the tested release
+        if: matrix.node == '24' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        run: |
+          mkdir -p "$RUNNER_TEMP/npm-package"
+          npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP/npm-package"
+      - name: Save release package
+        if: matrix.node == '24' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v7
+        with:
+          name: npm-package
+          path: ${{ runner.temp }}/npm-package/*.tgz
+          archive: true
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@v7
+        if: always() && matrix.node == '24'
+        with:
+          name: coverage-node-24
+          path: coverage/
+          if-no-files-found: warn
+          retention-days: 14
+
+  publish:
+    needs: check
+    if: >-
+      github.event_name == 'push' &&
+      startsWith(github.ref, 'refs/tags/v') &&
+      github.repository == 'kinouzero/homebridge-rfxcom'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Install npm with trusted publishing support
+        run: npm install --global npm@11 --ignore-scripts --no-audit --no-fund
+      - uses: actions/download-artifact@v8
+        with:
+          name: npm-package
+          path: npm-package
+          digest-mismatch: error
+      - name: Publish tested package to npm
+        run: npm publish ./npm-package/*.tgz --access public --tag latest --ignore-scripts --registry=https://registry.npmjs.org
