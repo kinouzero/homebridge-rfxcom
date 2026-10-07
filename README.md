@@ -150,56 +150,6 @@ Development uses TypeScript 6.0, ESLint 10 with `eslint.config.mjs`, and Ajv 8. 
 
 For local Homebridge development, run `npm link` once, then `npm run watch` to rebuild and restart Homebridge on source changes.
 
-## Publishing releases
-
-The `ci.yml` workflow publishes stable releases to npm after the entire test matrix succeeds. Branch pushes, pull requests and manual workflow runs only validate the project. Only a pushed tag exactly matching `v<package.json version>` can publish, and publication is restricted to `kinouzero/homebridge-rfxcom`.
-
-The Node.js 24 job builds, tests and checks the package, then uploads its `.tgz` archive. The publish job downloads that same archive and publishes it with lifecycle scripts disabled, without rebuilding or installing project dependencies. Tag/package/lockfile version mismatches stop the release. The npm `latest` tag is used; prerelease versions are not published by this workflow.
-
-### First publication under a new npm name
-
-Renaming `package.json` creates a separate npm package; it does not rename the existing registry entry or transfer its trusted publisher settings. The Homebridge platform alias `RFXCom` is independent of the npm name and remains the value to use in `config.json`.
-
-The direct OIDC workflow assumes the package already exists and its trusted publisher is configured. For a new name, the simplest bootstrap is an authenticated first publication from your machine:
-
-```sh
-npm ci
-npm run test:coverage
-npm run check:package
-npm login
-npm publish --access public
-```
-
-Complete npm's interactive authentication prompts. This publishes the version in `package.json` (currently 2.0.0). Then configure trusted publishing below and use a new version, such as 2.0.1, for the first automated release. Pushing `v2.0.0` afterward would attempt to publish that same immutable version again.
-
-Alternatively, npm supports creating packages through authenticated [staged publishing](https://github.blog/changelog/2026-10-02-npm-staged-publishing-now-supports-creating-new-packages/). This workflow uses direct publication and does not perform that initial account-authenticated creation.
-
-### One-time npm setup
-
-In the settings of the npm package `@kinouzero/homebridge-rfxcom-2`, add a **Trusted Publisher** with these values:
-
-| Field | Value |
-| --- | --- |
-| Provider | GitHub Actions |
-| Organization or user | `kinouzero` |
-| Repository | `homebridge-rfxcom` |
-| Workflow filename | `ci.yml` |
-| Environment | Leave empty |
-| Allowed actions | Enable direct publishing with `npm publish` |
-
-Once this trust relationship is configured, no `NPM_TOKEN` secret is required. GitHub provides a temporary OIDC identity token, which npm exchanges for short-lived publishing credentials. The publish job uses Node.js 24, npm 11 and the `id-token: write` permission for OIDC authentication. npm supplies provenance for eligible public repositories. See the [npm trusted publishing documentation](https://docs.npmjs.com/trusted-publishers/).
-
-### Publish a version
-
-Update `package.json`, `package-lock.json` and `CHANGELOG.md`, then commit and push the release changes. For example, after publishing 2.0.0 manually, prepare and commit version 2.0.1 and then push its matching tag:
-
-```sh
-git tag v2.0.1
-git push origin v2.0.1
-```
-
-For subsequent releases, use the matching new version. Configure the trusted publisher before pushing the tag. An already published npm version cannot be overwritten; use a new version for further changes. The workflow does not create tags or change version numbers automatically.
-
 ## Limits
 
 There is no physical position feedback. External remotes, radio latency and imperfect travel durations can desynchronize the estimate. After a disconnect, the motor may have continued moving; reconnecting restores the last saved estimate rather than claiming a measured position.
